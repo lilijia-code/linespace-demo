@@ -107,6 +107,10 @@ const jia: Author = { name: "Jia", handle: "@jia.afterimage", avatar: "Bc" };
 const alex: Author = { name: "Alex", handle: "@alex.verse", avatar: "Bc" };
 const aria: Author = { name: "Aria", handle: "@aria.notes", avatar: "Ar" };
 const mia: Author = { name: "Mia", handle: "@miathinks", avatar: "Mi" };
+const maya: Author = { name: "Maya", handle: "@maya.lines", avatar: "Ma" };
+const sam: Author = { name: "Sam", handle: "@sam.carter", avatar: "Sa" };
+const noor: Author = { name: "Noor", handle: "@noor.notes", avatar: "No" };
+const ray: Author = { name: "Ray", handle: "@ray.afterdark", avatar: "Ra" };
 
 const postsSeed: Post[] = [
   {
@@ -250,6 +254,199 @@ const postsSeed: Post[] = [
     contributors: 1,
     imagePreset: "stars",
   },
+  {
+    id: "p6",
+    author: maya,
+    stage: "Started from",
+    source: undefined,
+    visibility: "public",
+    body: "The elevator learned our birthdays but forgot which floor meant home.",
+    lines: ["The elevator learned our birthdays but forgot which floor meant home."],
+    tags: ["#apartment_poems", "#machine_memory", "#city_poems"],
+    color: "photo",
+    repliesOpen: true,
+    allowReplies: true,
+    allowBuild: true,
+    quoteAllowed: true,
+    allowLike: true,
+    showHistory: true,
+    invited: ["@Lili"],
+    likes: 84,
+    comments: 4,
+    quotes: 1,
+    saves: 6,
+    liked: false,
+    saved: false,
+    contributors: 1,
+    imagePreset: "city",
+  },
+  {
+    id: "p7",
+    author: sam,
+    stage: "Poem so far",
+    source: undefined,
+    visibility: "public",
+    body: "Every password I changed left a small ghost behind.",
+    lines: [
+      "Every password I changed left a small ghost behind.",
+      "It tapped from inside the autofill box.",
+      "I kept typing names until the screen became rain.",
+    ],
+    tags: ["#password_ghosts", "#self_archive", "#digital_memory"],
+    color: "blue",
+    repliesOpen: true,
+    allowReplies: true,
+    allowBuild: true,
+    quoteAllowed: true,
+    allowLike: true,
+    showHistory: true,
+    invited: [],
+    likes: 96,
+    comments: 3,
+    quotes: 4,
+    saves: 8,
+    liked: false,
+    saved: true,
+    contributors: 3,
+    imagePreset: "moon",
+  },
+  {
+    id: "p8",
+    author: noor,
+    stage: "Final Version",
+    source: undefined,
+    visibility: "public",
+    body: "We archived the rain in a folder named almost.",
+    lines: [
+      "We archived the rain in a folder named almost.",
+      "Each drop kept asking for permission.",
+      "By morning, the city had accepted our changes.",
+      "Nothing was restored, but everything stayed.",
+    ],
+    tags: ["#rain_archive", "#final_version", "#quiet_city"],
+    color: "red",
+    repliesOpen: false,
+    allowReplies: false,
+    allowBuild: false,
+    quoteAllowed: true,
+    allowLike: true,
+    showHistory: true,
+    invited: [],
+    likes: 151,
+    comments: 2,
+    quotes: 5,
+    saves: 11,
+    liked: true,
+    saved: false,
+    contributors: 4,
+  },
+  {
+    id: "p9",
+    author: lili,
+    stage: "Started from",
+    source: "Based on Lin's line",
+    visibility: "public",
+    body: "The city opened my old account and asked if I was still there.",
+    lines: ["The city opened my old account and asked if I was still there."],
+    tags: ["#quote_version", "#city_poems", "#AI_memory"],
+    color: "photo",
+    repliesOpen: true,
+    allowReplies: true,
+    allowBuild: true,
+    quoteAllowed: true,
+    allowLike: true,
+    showHistory: true,
+    invited: [],
+    likes: 42,
+    comments: 2,
+    quotes: 0,
+    saves: 5,
+    liked: false,
+    saved: false,
+    contributors: 1,
+    imagePreset: "city",
+  },
+  {
+    id: "p10",
+    author: ro,
+    stage: "Started from",
+    source: undefined,
+    visibility: "public",
+    body: "The streetlight buffered before deciding to become moonlight.",
+    lines: ["The streetlight buffered before deciding to become moonlight."],
+    tags: ["#Moon", "#loading", "#night"],
+    color: "moon",
+    repliesOpen: true,
+    allowReplies: true,
+    allowBuild: true,
+    quoteAllowed: false,
+    allowLike: true,
+    showHistory: true,
+    invited: [],
+    likes: 63,
+    comments: 1,
+    quotes: 0,
+    saves: 4,
+    liked: false,
+    saved: false,
+    contributors: 1,
+    imagePreset: "roses",
+  },
+  {
+    id: "p11",
+    author: lili,
+    stage: "Started from",
+    source: undefined,
+    visibility: "private",
+    body: "I keep a private tab open for the version of me that never replied.",
+    lines: ["I keep a private tab open for the version of me that never replied."],
+    tags: ["#private_draft", "#unsent", "#self_archive"],
+    color: "red",
+    repliesOpen: false,
+    allowReplies: false,
+    allowBuild: false,
+    quoteAllowed: false,
+    allowLike: false,
+    showHistory: false,
+    invited: [],
+    likes: 0,
+    comments: 0,
+    quotes: 0,
+    saves: 0,
+    liked: false,
+    saved: false,
+    contributors: 1,
+  },
+  {
+    id: "p12",
+    author: jia,
+    stage: "Poem so far",
+    source: undefined,
+    visibility: "public",
+    body: "My camera roll began sorting grief by brightness.",
+    lines: [
+      "My camera roll began sorting grief by brightness.",
+      "The happiest photo kept a shadow in the corner.",
+      "Someone commented: maybe this is how memory edits us.",
+    ],
+    tags: ["#image_text", "#digital_memory", "#grief"],
+    color: "photo",
+    repliesOpen: true,
+    allowReplies: true,
+    allowBuild: true,
+    quoteAllowed: true,
+    allowLike: true,
+    showHistory: true,
+    invited: [],
+    likes: 117,
+    comments: 3,
+    quotes: 3,
+    saves: 10,
+    liked: false,
+    saved: false,
+    contributors: 3,
+    imagePreset: "stars",
+  },
 ];
 
 const commentsSeed: Comment[] = [
@@ -261,6 +458,21 @@ const commentsSeed: Comment[] = [
   { id: "c6", postId: "p5", author: mia, text: "This is so real.", kind: "casual response", likes: 22, replies: 6, quotes: 2, liked: false },
   { id: "c7", postId: "p5", author: aria, text: "I folded the sentence back into my drafts before morning.", kind: "poetic continuation", likes: 46, replies: 18, quotes: 15, liked: false },
   { id: "c8", postId: "p5", author: alex, text: "It has a private, unsent feeling, almost like self-archive.", kind: "theme interpretation", likes: 19, replies: 5, quotes: 3, liked: false },
+  { id: "c9", postId: "p6", author: lili, text: "It stopped between floors and asked me to choose a childhood.", kind: "poetic continuation", likes: 29, replies: 8, quotes: 4, liked: false },
+  { id: "c10", postId: "p6", author: ray, text: "This feels funny at first, then suddenly lonely.", kind: "emotional feedback", likes: 18, replies: 3, quotes: 1, liked: false },
+  { id: "c11", postId: "p6", author: alex, text: "Maybe make the building feel more alive, like it remembers residents.", kind: "revision suggestion", likes: 24, replies: 5, quotes: 2, liked: false },
+  { id: "c12", postId: "p6", author: jia, text: "It feels about domestic memory and automated care.", kind: "theme interpretation", likes: 16, replies: 2, quotes: 1, liked: false },
+  { id: "c13", postId: "p7", author: lin, text: "It tapped from inside the autofill box.", kind: "poetic continuation", likes: 41, replies: 11, quotes: 7, liked: true },
+  { id: "c14", postId: "p7", author: maya, text: "The theme feels like identity leaking through old security questions.", kind: "theme interpretation", likes: 25, replies: 6, quotes: 3, liked: false },
+  { id: "c15", postId: "p7", author: ro, text: "Maybe keep the ending sharper and less explanatory.", kind: "revision suggestion", likes: 22, replies: 4, quotes: 2, liked: false },
+  { id: "c16", postId: "p8", author: sam, text: "I love how quiet this final version is.", kind: "emotional feedback", likes: 35, replies: 4, quotes: 1, liked: false },
+  { id: "c17", postId: "p8", author: lili, text: "The permission line makes the whole poem feel digital without saying it directly.", kind: "theme interpretation", likes: 20, replies: 3, quotes: 1, liked: false },
+  { id: "c18", postId: "p9", author: lin, text: "It asked me to verify the person I used to be.", kind: "poetic continuation", likes: 33, replies: 10, quotes: 5, liked: false },
+  { id: "c19", postId: "p9", author: noor, text: "This feels like a quote version that became its own door.", kind: "theme interpretation", likes: 17, replies: 2, quotes: 1, liked: false },
+  { id: "c20", postId: "p10", author: mia, text: "Same. Night always loads too slowly.", kind: "casual response", likes: 14, replies: 1, quotes: 0, liked: false },
+  { id: "c21", postId: "p12", author: alex, text: "The happiest photo kept a shadow in the corner.", kind: "poetic continuation", likes: 39, replies: 13, quotes: 5, liked: false },
+  { id: "c22", postId: "p12", author: maya, text: "Maybe use brightness as a way to arrange the whole poem.", kind: "revision suggestion", likes: 21, replies: 4, quotes: 2, liked: false },
+  { id: "c23", postId: "p12", author: noor, text: "It feels like grief being sorted by an app that does not understand grief.", kind: "emotional feedback", likes: 28, replies: 7, quotes: 2, liked: false },
 ];
 
 const suggestionsSeed: Suggestion[] = [
@@ -271,6 +483,17 @@ const suggestionsSeed: Suggestion[] = [
   { id: "s5", commentId: "c5", group: "Revision hints", text: "Make the speaker sound colder and less sentimental.", status: "open" },
   { id: "s6", commentId: "c7", group: "Possible lines", text: "I folded the sentence back into my drafts before morning.", status: "open" },
   { id: "s7", commentId: "c8", group: "Reader themes", text: "private, unsent feeling and self-archive", status: "open" },
+  { id: "s8", commentId: "c9", group: "Possible lines", text: "It stopped between floors and asked me to choose a childhood.", status: "open" },
+  { id: "s9", commentId: "c10", group: "Tone feedback", text: "Start playful, then let the loneliness arrive quietly.", status: "open" },
+  { id: "s10", commentId: "c11", group: "Revision hints", text: "Make the building feel alive, like it remembers residents.", status: "open" },
+  { id: "s11", commentId: "c12", group: "Reader themes", text: "domestic memory and automated care", status: "open" },
+  { id: "s12", commentId: "c13", group: "Possible lines", text: "It tapped from inside the autofill box.", status: "open" },
+  { id: "s13", commentId: "c14", group: "Reader themes", text: "identity leaking through old security questions", status: "open" },
+  { id: "s14", commentId: "c15", group: "Revision hints", text: "Keep the ending sharper and less explanatory.", status: "open" },
+  { id: "s15", commentId: "c18", group: "Possible lines", text: "It asked me to verify the person I used to be.", status: "open" },
+  { id: "s16", commentId: "c21", group: "Possible lines", text: "The happiest photo kept a shadow in the corner.", status: "open" },
+  { id: "s17", commentId: "c22", group: "Revision hints", text: "Use brightness as the structure for the poem.", status: "open" },
+  { id: "s18", commentId: "c23", group: "Tone feedback", text: "Grief sorted by an app that does not understand grief.", status: "open" },
 ];
 
 const navItems: { label: string; view: View }[] = [
@@ -392,6 +615,13 @@ export default function App() {
     if (!target?.quoteAllowed) return;
     setActivePostId(id);
     navigate("quote");
+  };
+
+  const openHistory = (id: string) => {
+    const target = posts.find((post) => post.id === id);
+    if (!target?.showHistory) return;
+    setActivePostId(id);
+    navigate("history");
   };
 
   const updatePost = (id: string, updater: (post: Post) => Post) => {
@@ -559,7 +789,7 @@ export default function App() {
         <SideTabs view={view} navigate={navigate} />
         <section className="mx-auto w-full max-w-[1260px] px-6 pb-12 pt-12">
           {view === "home" && <HomePage posts={filteredPosts} searchQuery={searchQuery} clearSearch={clearSearch} openPost={openPost} openQuote={openQuote} toggleLike={toggleLike} toggleSave={toggleSave} navigate={navigate} searchInput={searchInput} setSearchInput={setSearchInput} runSearch={runSearch} />}
-          {view === "streams" && <StreamsPage posts={filteredPosts} comments={comments} openPost={openPost} navigate={navigate} searchInput={searchInput} setSearchInput={setSearchInput} runSearch={runSearch} />}
+          {view === "streams" && <StreamsPage posts={filteredPosts} comments={comments} openPost={openPost} openQuote={openQuote} openHistory={openHistory} toggleSave={toggleSave} navigate={navigate} searchInput={searchInput} setSearchInput={setSearchInput} runSearch={runSearch} />}
           {view === "create" && <CreatePage draft={createDraft} setDraft={setCreateDraft} createTags={createTags} setCreateTags={setCreateTags} tagDraft={tagDraft} setTagDraft={setTagDraft} backgroundImage={backgroundImage} setBackgroundImage={setBackgroundImage} settings={settings} setSettings={setSettings} publishPost={publishPost} />}
           {view === "activity" && <ActivityPage openPost={() => openPost("p1")} navigate={navigate} searchInput={searchInput} setSearchInput={setSearchInput} runSearch={runSearch} />}
           {view === "profile" && (
@@ -607,6 +837,7 @@ export default function App() {
               toggleLike={toggleLike}
               toggleSave={toggleSave}
               publishFinalVersion={publishFinalVersion}
+              openHistory={openHistory}
               navigate={navigate}
               searchInput={searchInput}
               setSearchInput={setSearchInput}
@@ -734,7 +965,7 @@ function HomePage({
         </div>
       )}
       {posts.length > 0 ? (
-        <MasonryGrid posts={posts.concat(posts.slice(1, 4))} openPost={openPost} openQuote={openQuote} toggleLike={toggleLike} toggleSave={toggleSave} />
+        <MasonryGrid posts={posts} openPost={openPost} openQuote={openQuote} toggleLike={toggleLike} toggleSave={toggleSave} />
       ) : (
         <div className="rounded-[24px] border-2 border-[#001eff] p-8 text-xl font-black text-[#001eff]">
           No matching poems yet. Try another word, tag, or poet.
@@ -744,25 +975,188 @@ function HomePage({
   );
 }
 
-function StreamsPage({ posts, comments, openPost, navigate, searchInput, setSearchInput, runSearch }: { posts: Post[]; comments: Comment[]; openPost: (id: string) => void; navigate: (view: View) => void } & SearchProps) {
+function StreamsPage({
+  posts,
+  comments,
+  openPost,
+  openQuote,
+  openHistory,
+  toggleSave,
+  navigate,
+  searchInput,
+  setSearchInput,
+  runSearch,
+}: {
+  posts: Post[];
+  comments: Comment[];
+  openPost: (id: string) => void;
+  openQuote: (id: string) => void;
+  openHistory: (id: string) => void;
+  toggleSave: (id: string) => void;
+  navigate: (view: View) => void;
+} & SearchProps) {
   const [streamView, setStreamView] = useState<"Map View" | "Chain View" | "List View">("Map View");
-  const [selectedNodeId, setSelectedNodeId] = useState(posts[0]?.id ?? "");
-  const selectedPost = posts.find((post) => post.id === selectedNodeId) ?? posts[0];
-  const clusters = ["#AI_memory", "#cyber_nostalgia", "#rain_archive", "#city_poems", "#self_archive", "#micro_poetry"];
-  const firstPost = posts[0];
-  const firstComments = comments.filter((comment) => comment.postId === firstPost?.id);
-  const mapNodes = [
-    { id: firstPost?.id ?? "p1", label: "Poem Starter", kind: "starter", x: 46, y: 42, size: 82, post: firstPost, text: firstPost?.body },
-    { id: firstComments[0]?.id ?? "comment-a", label: "Comment", kind: "comment", x: 24, y: 26, size: 36, post: firstPost, text: firstComments[0]?.text ?? "A reader left a possible next line." },
-    { id: firstComments[1]?.id ?? "comment-b", label: "Comment", kind: "comment", x: 28, y: 64, size: 30, post: firstPost, text: firstComments[1]?.text ?? "A reader interpreted the mood." },
-    { id: "reply-a", label: "Reply", kind: "reply", x: 16, y: 50, size: 24, post: firstPost, text: "Reply thread: maybe the city is only a saved draft." },
-    { id: posts[2]?.id ?? "quote-a", label: "Quote", kind: "quote", x: 72, y: 24, size: 50, post: posts[2] ?? firstPost, text: posts[2]?.body },
-    { id: posts[4]?.id ?? "quote-b", label: "Quote", kind: "quote", x: 78, y: 58, size: 42, post: posts[4] ?? firstPost, text: posts[4]?.body },
-    { id: "saved-a", label: "Saved", kind: "saved", x: 63, y: 43, size: 32, post: firstPost, text: "Saved for later inspiration." },
-    { id: posts.find((post) => post.stage === "Final Version")?.id ?? "final", label: "Final Version", kind: "final", x: 58, y: 76, size: 58, post: posts.find((post) => post.stage === "Final Version") ?? firstPost, text: posts.find((post) => post.stage === "Final Version")?.body },
+  const [topicFilter, setTopicFilter] = useState<"Latest" | "Most active" | "Most quoted" | "Final versions">("Most active");
+  const [selectedTag, setSelectedTag] = useState("#AI_memory");
+  const [selectedNodeId, setSelectedNodeId] = useState("topic:#AI_memory");
+  const [mapZoom, setMapZoom] = useState(1);
+
+  const topicStats = useMemo(() => {
+    const map = new Map<string, { tag: string; posts: Post[]; likes: number; comments: number; quotes: number; finals: number }>();
+    posts.forEach((post) => {
+      post.tags
+        .filter((tag) => !["#quote_version", "#based_on_Lili", "#final_version"].includes(tag))
+        .forEach((tag) => {
+          const current = map.get(tag) ?? { tag, posts: [], likes: 0, comments: 0, quotes: 0, finals: 0 };
+          current.posts.push(post);
+          current.likes += post.likes;
+          current.comments += post.comments;
+          current.quotes += post.quotes;
+          current.finals += post.stage === "Final Version" ? 1 : 0;
+          map.set(tag, current);
+        });
+    });
+    const topics = Array.from(map.values());
+    return topics.sort((a, b) => {
+      if (topicFilter === "Most quoted") return b.quotes - a.quotes;
+      if (topicFilter === "Final versions") return b.finals - a.finals || b.likes - a.likes;
+      if (topicFilter === "Latest") return b.posts.length - a.posts.length;
+      return b.likes + b.comments * 3 + b.quotes * 5 - (a.likes + a.comments * 3 + a.quotes * 5);
+    });
+  }, [posts, topicFilter]);
+
+  const currentTopic = topicStats.find((topic) => topic.tag === selectedTag) ?? topicStats[0];
+  const currentTag = currentTopic?.tag ?? "#AI_memory";
+  const topicPosts = (currentTopic?.posts ?? []).slice().sort((a, b) => {
+    if (topicFilter === "Most quoted") return b.quotes - a.quotes;
+    if (topicFilter === "Final versions") return Number(b.stage === "Final Version") - Number(a.stage === "Final Version") || b.likes - a.likes;
+    if (topicFilter === "Latest") return posts.indexOf(a) - posts.indexOf(b);
+    return b.likes + b.comments * 3 + b.quotes * 5 - (a.likes + a.comments * 3 + a.quotes * 5);
+  });
+  const strongestPost = topicPosts[0] ?? posts[0];
+  const maxLikes = Math.max(1, ...topicPosts.map((post) => post.likes));
+  const branchPositions = [
+    { x: 50, y: 66 },
+    { x: 31, y: 54 },
+    { x: 69, y: 48 },
+    { x: 37, y: 36 },
+    { x: 64, y: 29 },
+    { x: 48, y: 18 },
+  ];
+  type StreamMapNode = {
+    id: string;
+    label: string;
+    kind: string;
+    x: number;
+    y: number;
+    size: number;
+    width?: number;
+    height?: number;
+    text?: string;
+    post?: Post;
+    comment?: Comment;
+    sourceX?: number;
+    sourceY?: number;
+  };
+  const mapNodes: StreamMapNode[] = [
+    {
+      id: `topic:${currentTag}`,
+      label: currentTag,
+      kind: "topic",
+      x: 50,
+      y: 84,
+      size: 112,
+      width: 170,
+      height: 78,
+      text: `${currentTopic?.posts.length ?? 0} poems · ${currentTopic?.likes ?? 0} likes · ${currentTopic?.comments ?? 0} comments`,
+      post: strongestPost,
+    },
+    ...topicPosts.slice(0, 6).flatMap((post, index) => {
+      const finalIndex = topicPosts.slice(0, 6).filter((item) => item.stage === "Final Version").indexOf(post);
+      const position = post.stage === "Final Version" ? { x: 50 + finalIndex * 14, y: 11 } : branchPositions[index] ?? branchPositions[0];
+      const side = position.x < 50 ? -1 : 1;
+      const ratio = post.likes / maxLikes;
+      const strength = 54 + Math.round(ratio * 42);
+      const postComments = comments
+        .filter((comment) => comment.postId === post.id)
+        .sort((a, b) => b.likes - a.likes)
+        .slice(0, 2);
+      const commentNodes = postComments.map((comment, commentIndex) => ({
+        id: `comment:${comment.id}`,
+        label: "Comment",
+        kind: "comment",
+        x: Math.max(10, Math.min(90, position.x + side * (16 + commentIndex * 7))),
+        y: Math.max(8, Math.min(86, position.y - (8 + commentIndex * 8))),
+        size: 27 + Math.min(18, Math.round(comment.likes / 4)),
+        width: 145,
+        height: 46,
+        text: comment.text,
+        post,
+        comment,
+        sourceX: position.x,
+        sourceY: position.y,
+      }));
+      const quoteNodes = post.quotes > 0
+        ? Array.from({ length: Math.min(2, post.quotes) }, (_, quoteIndex) => ({
+            id: `quote:${post.id}:${quoteIndex}`,
+            label: "Quote",
+            kind: "quote",
+            x: Math.max(10, Math.min(90, position.x + side * (27 + quoteIndex * 9))),
+            y: Math.max(8, Math.min(86, position.y - (3 + quoteIndex * 11))),
+            size: 34 + Math.min(18, post.quotes * 3),
+            width: 120,
+            height: 48,
+            text: quoteIndex === 0 ? `Quote version based on: ${post.body}` : `Another quote version from this branch.`,
+            post,
+            sourceX: position.x,
+            sourceY: position.y,
+          }))
+        : [];
+      const saveNode = post.saves > 0
+        ? [{
+            id: `save:${post.id}`,
+            label: "Save",
+            kind: "save",
+            x: Math.max(10, Math.min(90, position.x - side * 15)),
+            y: Math.max(8, Math.min(86, position.y + 8)),
+            size: 28 + Math.min(18, post.saves * 2),
+            width: 102,
+            height: 38,
+            text: `${post.saves} saved for later inspiration.`,
+            post,
+            sourceX: position.x,
+            sourceY: position.y,
+          }]
+        : [];
+      return [
+        {
+          id: `post:${post.id}`,
+          label: post.stage === "Final Version" ? "Final Version" : post.tags.includes("#quote_version") ? "Quote" : "Line",
+          kind: post.stage === "Final Version" ? "final" : post.tags.includes("#quote_version") ? "quote" : "branch",
+          x: position.x,
+          y: position.y,
+          size: strength,
+          width: post.stage === "Final Version" ? 190 : post.tags.includes("#quote_version") ? 145 : 150 + Math.round(ratio * 70),
+          height: post.stage === "Final Version" ? 92 : post.tags.includes("#quote_version") ? 60 : 58 + Math.round(ratio * 24),
+          text: post.body,
+          post,
+          sourceX: post.stage === "Final Version" && topicPosts[0] ? branchPositions[0].x : 50,
+          sourceY: post.stage === "Final Version" && topicPosts[0] ? branchPositions[0].y : 84,
+        },
+        ...commentNodes,
+        ...quoteNodes,
+        ...saveNode,
+      ];
+    }),
   ];
   const selectedNode = mapNodes.find((node) => node.id === selectedNodeId) ?? mapNodes[0];
-  const previewPost = selectedNode?.post ?? selectedPost;
+  const previewPost = selectedNode?.post ?? strongestPost;
+  const previewComment = selectedNode?.comment;
+
+  const selectTopic = (tag: string) => {
+    setSelectedTag(tag);
+    setSelectedNodeId(`topic:${tag}`);
+  };
 
   return (
     <div>
@@ -770,7 +1164,7 @@ function StreamsPage({ posts, comments, openPost, navigate, searchInput, setSear
       <div className="mb-6 flex items-end justify-between gap-6">
         <div>
           <h2 className="font-mono text-[36px] font-black text-[#001eff]">Streams</h2>
-          <p className="mt-1 text-lg font-black">Poem Map</p>
+          <p className="mt-1 text-lg font-black">Hashtag poem map</p>
         </div>
         <div className="flex gap-3">
           {["Map View", "Chain View", "List View"].map((view) => (
@@ -779,8 +1173,8 @@ function StreamsPage({ posts, comments, openPost, navigate, searchInput, setSear
         </div>
       </div>
       <div className="mb-6 flex flex-wrap gap-3">
-        {["Latest", "Most active", "Most quoted", "Final versions"].map((filter, index) => (
-          <button key={filter} className={`rounded-full px-5 py-2 text-sm font-black ${index === 0 ? "bg-[#001eff] text-white" : "bg-[#eef0ff] text-[#001eff]"}`}>{filter}</button>
+        {["Latest", "Most active", "Most quoted", "Final versions"].map((filter) => (
+          <button key={filter} onClick={() => setTopicFilter(filter as "Latest" | "Most active" | "Most quoted" | "Final versions")} className={`rounded-full px-5 py-2 text-sm font-black ${topicFilter === filter ? "bg-[#001eff] text-white" : "bg-[#eef0ff] text-[#001eff]"}`}>{filter}</button>
         ))}
       </div>
 
@@ -788,49 +1182,92 @@ function StreamsPage({ posts, comments, openPost, navigate, searchInput, setSear
         <div className="grid grid-cols-[210px_minmax(0,1fr)_310px] gap-5">
           <aside className="grid content-start gap-3">
             <p className="font-mono text-[24px] font-black">tag clusters</p>
-            {clusters.map((tag, index) => (
-              <button key={tag} onClick={() => setSelectedNodeId(mapNodes[index % mapNodes.length].id)} className="rounded-[20px] border-2 border-[#001eff] px-4 py-3 text-left text-sm font-black text-[#001eff]">
-                {tag}
+            {topicStats.slice(0, 8).map((topic) => (
+              <button key={topic.tag} onClick={() => selectTopic(topic.tag)} className={`rounded-[20px] border-2 px-4 py-3 text-left text-sm font-black ${currentTag === topic.tag ? "border-[#001eff] bg-[#001eff] text-white" : "border-[#001eff] text-[#001eff]"}`}>
+                <span className="block">{topic.tag}</span>
+                <span className={`mt-1 block text-[11px] ${currentTag === topic.tag ? "text-white/80" : "text-[#777]"}`}>
+                  {topic.posts.length} lines · {topic.likes} likes
+                </span>
               </button>
             ))}
           </aside>
-          <section className="relative min-h-[560px] overflow-hidden rounded-[30px] border-2 border-[#001eff] bg-[#f8f9ff]">
-            <svg className="absolute inset-0 h-full w-full" viewBox="0 0 100 100" preserveAspectRatio="none">
-              <path d="M46 42 C35 31, 30 28, 24 26" stroke="#001eff" strokeWidth="0.45" fill="none" opacity="0.45" />
-              <path d="M46 42 C34 51, 32 58, 28 64" stroke="#001eff" strokeWidth="0.45" fill="none" opacity="0.45" />
-              <path d="M24 26 C18 34, 17 42, 16 50" stroke="#aeb2d3" strokeWidth="0.35" fill="none" opacity="0.6" />
-              <path d="M46 42 C58 31, 64 26, 72 24" stroke="#001eff" strokeWidth="0.55" fill="none" opacity="0.55" />
-              <path d="M46 42 C60 48, 70 54, 78 58" stroke="#001eff" strokeWidth="0.55" fill="none" opacity="0.55" />
-              <path d="M46 42 C52 40, 58 41, 63 43" stroke="#ff4b4f" strokeWidth="0.35" fill="none" opacity="0.55" />
-              <path d="M46 42 C50 56, 54 66, 58 76" stroke="#ff4b4f" strokeWidth="0.65" fill="none" opacity="0.7" />
-            </svg>
-            {mapNodes.map((node) => (
-              <button
-                key={node.id}
-                onClick={() => setSelectedNodeId(node.id)}
-                title={`${node.label}: ${node.post?.body ?? "reader response"}`}
-                className={`absolute grid place-items-center text-center text-[10px] font-black leading-tight transition hover:scale-105 ${streamNodeClass(node.kind, node.id === selectedNodeId)}`}
-                style={{ left: `${node.x}%`, top: `${node.y}%`, width: node.size, height: node.size, transform: "translate(-50%, -50%)" }}
-              >
-                <span>{node.label}</span>
-                {node.post?.saved && <Star size={14} className="absolute -right-1 -top-1 fill-current text-[#ff4b4f]" />}
-              </button>
-            ))}
+          <section className="relative h-[620px] overflow-auto rounded-[30px] border-2 border-[#001eff] bg-white">
+            <div className="sticky left-4 top-4 z-30 flex w-max items-center gap-2 rounded-full bg-white/90 px-3 py-2 shadow-sm">
+              <button type="button" onClick={() => setMapZoom((value) => Math.max(0.85, Number((value - 0.15).toFixed(2))))} className="grid h-8 w-8 place-items-center rounded-full border-2 border-[#001eff] font-black text-[#001eff]">-</button>
+              <span className="w-12 text-center text-xs font-black text-[#001eff]">{Math.round(mapZoom * 100)}%</span>
+              <button type="button" onClick={() => setMapZoom((value) => Math.min(1.7, Number((value + 0.15).toFixed(2))))} className="grid h-8 w-8 place-items-center rounded-full border-2 border-[#001eff] font-black text-[#001eff]">+</button>
+            </div>
+            <div className="relative mx-auto" style={{ width: 980 * mapZoom, height: 760 * mapZoom }}>
+              <div className="absolute left-1/2 top-0 h-[760px] w-[980px] origin-top -translate-x-1/2" style={{ transform: `translateX(-50%) scale(${mapZoom})` }}>
+                <svg className="absolute inset-0 h-full w-full" viewBox="0 0 100 100" preserveAspectRatio="none">
+                  {mapNodes.filter((node): node is StreamMapNode & { sourceX: number; sourceY: number } => typeof node.sourceX === "number" && typeof node.sourceY === "number").map((node) => (
+                    <path
+                      key={`edge-${node.id}`}
+                      d={streamPath(node)}
+                      stroke={streamNodeColor(node.kind)}
+                      strokeWidth={node.kind === "branch" ? 0.54 : node.kind === "final" ? 0.72 : node.kind === "quote" ? 0.44 : 0.28}
+                      fill="none"
+                      opacity={node.kind === "comment" || node.kind === "save" ? 0.42 : 0.72}
+                    />
+                  ))}
+                </svg>
+                {mapNodes.map((node) => (
+                  <button
+                    key={node.id}
+                    onClick={() => setSelectedNodeId(node.id)}
+                    title={`${node.label}: ${node.text}`}
+                    className={`absolute whitespace-pre-line text-left font-black leading-tight transition hover:scale-105 ${streamNodeClass(node.kind, node.id === selectedNodeId)}`}
+                    style={{ left: `${node.x}%`, top: `${node.y}%`, width: node.width ?? node.size, minHeight: node.height ?? node.size, transform: "translate(-50%, -50%)", zIndex: node.id === selectedNodeId ? 20 : node.kind === "topic" || node.kind === "final" ? 12 : node.kind === "branch" ? 10 : 8 }}
+                  >
+                    <span className="mb-1 flex items-center gap-1.5 whitespace-normal">
+                      {node.kind !== "topic" && <MapMiniAvatar node={node} />}
+                      {node.kind !== "topic" && <span className="text-[10px] font-black opacity-70">{streamNodeAuthor(node)}</span>}
+                    </span>
+                    <span>{streamNodeText(node)}</span>
+                    {node.post?.saved && node.kind === "branch" && <Star size={12} className="ml-1 inline fill-current text-[#777]" />}
+                  </button>
+                ))}
+              </div>
+            </div>
           </section>
           <aside className="rounded-[26px] border-2 border-[#001eff] p-5">
-            <span className={`rounded-full px-4 py-1 text-sm font-black ${selectedNode.kind === "final" ? "bg-[#ff4b4f] text-white" : "bg-[#001eff] text-white"}`}>{selectedNode.label}</span>
-            <p className="mt-5 text-xl font-black leading-tight">{selectedNode.text || previewPost?.body}</p>
-            <p className="mt-3 text-sm font-bold text-[#777]">{previewPost?.author.name} · {previewPost?.tags[0]}</p>
+            <span className={`rounded-full px-4 py-1 text-sm font-black ${selectedNode.kind === "final" ? "bg-[#ff4b4f] text-white" : selectedNode.kind === "topic" ? "bg-black text-white" : "bg-[#001eff] text-white"}`}>{selectedNode.label}</span>
+            <div className={`mt-5 text-xl font-black leading-tight ${previewPost?.stage === "Final Version" && !previewComment ? "grid gap-3 text-[18px]" : ""}`}>
+              {previewPost?.stage === "Final Version" && !previewComment
+                ? previewPost.lines.map((line, index) => <p key={`${line}-${index}`}>{line}</p>)
+                : <p>{previewComment ? previewComment.text : selectedNode.text || previewPost?.body}</p>}
+            </div>
+            <p className="mt-3 text-sm font-bold text-[#777]">
+              {previewComment ? `${previewComment.author.name}'s comment` : `${previewPost?.author.name} · ${previewPost?.tags[0]}`}
+            </p>
             <div className="mt-5 grid grid-cols-2 gap-3 text-sm font-black">
-              <span>{previewPost?.likes ?? 0} likes</span>
-              <span>{selectedNode.kind === "comment" || selectedNode.kind === "reply" ? "reader response" : `${previewPost?.comments ?? 0} comments`}</span>
-              <span>{previewPost?.quotes ?? 0} quotes</span>
+              <span>{previewComment ? previewComment.likes : previewPost?.likes ?? 0} likes</span>
+              <span>{previewComment ? `${previewComment.replies} replies` : `${previewPost?.comments ?? 0} comments`}</span>
+              <span>{previewComment ? `${previewComment.quotes} quotes` : `${previewPost?.quotes ?? 0} quotes`}</span>
               <span>{previewPost?.saved ? "saved" : "not saved"}</span>
             </div>
             <div className="mt-6 grid gap-3">
               <button onClick={() => previewPost && openPost(previewPost.id)} className="rounded-full bg-[#001eff] px-5 py-3 font-black text-white">Open post</button>
-              <button className="rounded-full border-2 border-[#001eff] px-5 py-3 font-black text-[#001eff]">Quote</button>
-              <button className="rounded-full border-2 border-[#001eff] px-5 py-3 font-black text-[#001eff]">View history</button>
+              <button
+                onClick={() => previewPost && openQuote(previewPost.id)}
+                disabled={!previewPost?.quoteAllowed}
+                className={`rounded-full border-2 px-5 py-3 font-black ${previewPost?.quoteAllowed ? "border-[#001eff] text-[#001eff]" : "border-[#d6d6d6] text-[#aaa]"}`}
+              >
+                Quote
+              </button>
+              <button
+                onClick={() => previewPost && toggleSave(previewPost.id)}
+                className="rounded-full border-2 border-[#001eff] px-5 py-3 font-black text-[#001eff]"
+              >
+                {previewPost?.saved ? "Saved" : "Save"}
+              </button>
+              <button
+                onClick={() => previewPost && openHistory(previewPost.id)}
+                disabled={!previewPost?.showHistory}
+                className={`rounded-full border-2 px-5 py-3 font-black ${previewPost?.showHistory ? "border-[#001eff] text-[#001eff]" : "border-[#d6d6d6] text-[#aaa]"}`}
+              >
+                View history
+              </button>
             </div>
           </aside>
         </div>
@@ -838,29 +1275,92 @@ function StreamsPage({ posts, comments, openPost, navigate, searchInput, setSear
 
       {streamView === "Chain View" && (
         <section className="rounded-[30px] border-2 border-[#001eff] p-6">
-          {["Poem Starter", "Comment", "Reply", "Quote", "Added to poem", "Final Version"].map((step, index) => (
-            <div key={step} className="flex items-center gap-4 border-b border-[#d9ddff] py-4 last:border-b-0">
-              <span className={`grid h-10 w-10 place-items-center rounded-full font-black text-white ${step === "Final Version" ? "bg-[#ff4b4f]" : "bg-[#001eff]"}`}>{index + 1}</span>
-              <span className="text-xl font-black">{step}</span>
-              <span className="text-sm font-bold text-[#777]">{posts[index % posts.length]?.body}</span>
+          <div className="mb-5 flex items-center justify-between">
+            <h3 className="font-mono text-[28px] font-black">{currentTag}</h3>
+            <span className="rounded-full bg-[#eef0ff] px-4 py-2 text-sm font-black text-[#001eff]">{topicFilter}</span>
+          </div>
+          {topicPosts.map((post, index) => (
+            <div key={post.id} className="grid grid-cols-[52px_1fr_110px_90px_90px] items-center gap-4 border-b border-[#d9ddff] py-4 last:border-b-0">
+              <span className={`grid h-11 w-11 place-items-center rounded-full font-black text-white ${post.stage === "Final Version" ? "bg-[#ff4b4f]" : "bg-[#001eff]"}`}>{index + 1}</span>
+              <button onClick={() => openPost(post.id)} className="text-left">
+                <span className="block text-xl font-black">{post.body}</span>
+                <span className="text-sm font-bold text-[#777]">{post.author.name} · {post.stage}</span>
+              </button>
+              <span className="text-sm font-black text-[#001eff]">{post.likes} likes</span>
+              <span className="text-sm font-black text-[#777]">{post.comments} comments</span>
+              <span className="text-sm font-black text-[#777]">{post.quotes} quotes</span>
             </div>
           ))}
         </section>
       )}
 
-      {streamView === "List View" && <MasonryGrid posts={posts.slice(0, 8)} openPost={openPost} openQuote={() => undefined} toggleLike={() => undefined} toggleSave={() => undefined} compact />}
+      {streamView === "List View" && <MasonryGrid posts={topicPosts.slice(0, 8)} openPost={openPost} openQuote={openQuote} toggleLike={() => undefined} toggleSave={toggleSave} compact />}
     </div>
   );
 }
 
 function streamNodeClass(kind: string, active: boolean) {
-  const base = active ? "ring-4 ring-[#001eff]/25 " : "";
-  if (kind === "final") return `${base}rounded-full border-2 border-[#ff4b4f] bg-[#ff4b4f] text-white`;
-  if (kind === "quote") return `${base}rounded-[18px] border-2 border-[#001eff] bg-white text-[#001eff]`;
-  if (kind === "reply") return `${base}rounded-full border-2 border-[#aeb2d3] bg-white text-[#777]`;
-  if (kind === "saved") return `${base}rounded-[12px] border-2 border-[#ff4b4f] bg-[#fff1f1] text-[#ff4b4f]`;
-  if (kind === "comment") return `${base}rounded-full border-2 border-[#aeb2d3] bg-[#eef0ff] text-[#001eff]`;
-  return `${base}rounded-full border-2 border-[#001eff] bg-[#001eff] text-white`;
+  const activeMark = active ? "underline decoration-2 underline-offset-4 " : "";
+  if (kind === "topic") return `${activeMark}text-[24px] text-[#001eff]`;
+  if (kind === "branch") return `${activeMark}text-[15px] text-[#001eff]`;
+  if (kind === "final") return `${activeMark}text-[15px] text-[#ff4b4f]`;
+  if (kind === "quote") return `${activeMark}text-[12px] text-[#8b5cf6]`;
+  if (kind === "save") return `${activeMark}text-[11px] text-[#888]`;
+  if (kind === "comment") return `${activeMark}text-[12px] text-[#16a34a]`;
+  return `${activeMark}text-[12px] text-[#001eff]`;
+}
+
+function streamNodeColor(kind: string) {
+  if (kind === "comment") return "#16a34a";
+  if (kind === "quote") return "#8b5cf6";
+  if (kind === "save") return "#9ca3af";
+  if (kind === "final") return "#ff4b4f";
+  return "#001eff";
+}
+
+function streamPath(node: { kind: string; x: number; y: number; sourceX: number; sourceY: number }) {
+  const midY = node.sourceY - Math.abs(node.sourceY - node.y) * 0.45;
+  if (node.kind === "branch" || node.kind === "final") {
+    return `M${node.sourceX} ${node.sourceY} C${node.sourceX} ${midY}, ${node.x} ${midY}, ${node.x} ${node.y}`;
+  }
+  const bendX = node.sourceX + (node.x - node.sourceX) * 0.72;
+  return `M${node.sourceX} ${node.sourceY} C${bendX} ${node.sourceY - 2}, ${bendX} ${node.y}, ${node.x} ${node.y}`;
+}
+
+function streamNodeText(node: { kind: string; label: string; text?: string; post?: Post; comment?: Comment }) {
+  if (node.kind === "topic") return node.label;
+  if (node.kind === "comment") return `comment -> ${shorten(node.comment?.text ?? node.text ?? "Comment", 52)}`;
+  if (node.kind === "quote") return `quote -> ${node.post?.tags.includes("#quote_version") ? shorten(node.post.body, 42) : shorten(node.text ?? "Quote version", 44)}`;
+  if (node.kind === "save") return `save -> ${node.post?.saves ?? 0}`;
+  if (node.kind === "final") return `final -> ${shorten(node.post?.lines.join(" / ") ?? node.post?.body ?? "Final Version", 68)}`;
+  if (node.kind === "branch") return `${shorten(node.post?.body ?? node.text ?? "Line", 56)}\nlike -> ${node.post?.likes ?? 0}`;
+  return node.label;
+}
+
+function streamNodeAuthor(node: { kind: string; post?: Post; comment?: Comment }) {
+  if (node.kind === "comment") return node.comment?.author.handle ?? "reader";
+  if (node.kind === "quote") return node.post?.source ?? "quote";
+  if (node.kind === "save") return "saved";
+  if (node.kind === "final") return `${node.post?.contributors ?? 1} contributors`;
+  return node.post?.author.handle ?? "poet";
+}
+
+function MapMiniAvatar({ node }: { node: { kind: string; post?: Post; comment?: Comment } }) {
+  const author = node.kind === "comment" ? node.comment?.author : node.post?.author;
+  const label = node.kind === "save" ? "S" : node.kind === "quote" ? "Q" : node.kind === "final" ? "F" : author?.avatar ?? "P";
+  const tone =
+    node.kind === "final"
+      ? "bg-[#ff4b4f] text-white"
+      : node.kind === "quote"
+        ? "bg-[#eef0ff] text-[#001eff]"
+        : node.kind === "save"
+          ? "bg-[#efefef] text-[#777]"
+          : "bg-[#001eff] text-white";
+  return <span className={`grid h-5 w-5 shrink-0 place-items-center rounded-full text-[9px] font-black ${tone}`}>{label}</span>;
+}
+
+function shorten(text: string, max: number) {
+  return text.length > max ? `${text.slice(0, max - 1)}...` : text;
 }
 
 function CreatePage(props: {
@@ -1261,9 +1761,10 @@ function DetailPage(props: {
   toggleLike: (id: string) => void;
   toggleSave: (id: string) => void;
   publishFinalVersion: (postId: string) => void;
+  openHistory: (id: string) => void;
   navigate: (view: View) => void;
 } & SearchProps) {
-  const { post, comments, suggestionsByComment, poemLines, commentDraft, activeSuggestionCount, setCommentDraft, addComment, likeComment, addSuggestionToPoem, editSuggestion, updateSuggestion, ignoreSuggestion, toggleLike, toggleSave, publishFinalVersion, navigate, searchInput, setSearchInput, runSearch } = props;
+  const { post, comments, suggestionsByComment, poemLines, commentDraft, activeSuggestionCount, setCommentDraft, addComment, likeComment, addSuggestionToPoem, editSuggestion, updateSuggestion, ignoreSuggestion, toggleLike, toggleSave, publishFinalVersion, openHistory, navigate, searchInput, setSearchInput, runSearch } = props;
   return (
     <div>
       <BrandBar showSearch navigate={navigate} searchInput={searchInput} setSearchInput={setSearchInput} runSearch={runSearch} />
@@ -1273,7 +1774,7 @@ function DetailPage(props: {
           <PoemCard post={post} openPost={() => undefined} openQuote={() => (post.quoteAllowed ? navigate("quote") : undefined)} toggleLike={toggleLike} toggleSave={toggleSave} forcePoem />
           <div className="mt-8 grid gap-3">
             <p className="text-[22px] font-black text-[#001eff]">Author action</p>
-            {post.showHistory && <button onClick={() => navigate("history")} className="rounded-full border-2 border-[#001eff] px-5 py-2 text-left font-black text-[#001eff]">View history</button>}
+            {post.showHistory && <button onClick={() => openHistory(post.id)} className="rounded-full border-2 border-[#001eff] px-5 py-2 text-left font-black text-[#001eff]">View history</button>}
             <button onClick={() => publishFinalVersion(post.id)} className="rounded-full bg-[#001eff] px-5 py-2 text-left font-black text-white">Publish final version</button>
           </div>
         </section>
