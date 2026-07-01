@@ -249,7 +249,10 @@ type VersionEvent = {
     | "line_added"
     | "line_reordered"
     | "version_locked"
+    | "design_saved"
+    | "design_locked"
     | "published"
+    | "jpg_exported"
     | "pdf_exported";
   payload: Record<string, unknown>;
   createdAt: string;
@@ -530,9 +533,217 @@ AI 可以在 final stage 提供：
 - PDF / card layout 方案。
 - 简短作品说明。
 
-## 11. 现有 demo 到目标方案的改造清单
+## 11. Publication Studio：Create 部分新增作品封装
 
-### 11.1 数据层
+访谈里“作品感”非常重要：诗歌不是普通文字帖，作者常常会通过截图、排版、图片、封面、纸张质感来确认作品已经完成。因此 Create 不应止步于“输入文本并发布”，而应形成一条从 `write` 到 `package` 到 `lock/export` 的完成路径。
+
+建议把 Create / Final Version 流程拆成三步：
+
+1. `Write`：输入诗歌文本、设置协作模式、反馈契约、可见性。
+2. `Package`：把文本封装成明信片、诗页、诗集页或社交媒体 finished form。
+3. `Lock & Export`：确认 final version，锁定版本，导出 PDF / JPG 到本地。
+
+### 11.1 两种封装模式
+
+#### 模式 A：自由美工编辑 Studio
+
+适合用户已经有明确审美，想自己调整作品呈现。
+
+核心功能：
+
+- 文本编辑：字体、字号、字重、行高、字距、对齐、颜色、透明度。
+- 版式编辑：文本框位置、宽度、内边距、旋转角度、分栏、诗行间距。
+- 背景编辑：背景纸张、纯色、渐变、照片、GIF 静帧、纹理纸。
+- 拼贴编辑：贴纸、印章、胶带、便签、撕纸边、日期戳、署名章。
+- 画布规格：postcard、square social card、A4 poetry sheet、chapbook page、phone story。
+- 安全边距：导出时显示 bleed / safe area，防止文字贴边。
+- 版本快照：每次保存 layout 都生成一个 design snapshot，可和 poem version 绑定。
+
+自由编辑的目标不是做复杂设计软件，而是提供“刚好够诗歌作者完成作品感”的轻量工具。MVP 中不需要拖拽库也可以先做：左侧控制面板 + 右侧实时预览，位置用 slider / stepper 调整。
+
+#### 模式 B：固定模板一键套版
+
+适合用户只想输入诗歌，快速得到漂亮成品。
+
+模板建议：
+
+| 模板名 | 适合内容 | 视觉方向 | 输出规格 |
+| --- | --- | --- | --- |
+| `Quiet Postcard` | 短诗 / 单行 fragment | 留白、纸张纹理、细边框、角落署名 | postcard / JPG |
+| `Notebook Screenshot` | 私密草稿 / unsent feeling | 横线纸、备忘录感、手写注释贴纸 | square / story |
+| `Little Journal Page` | final version / 投稿展示 | 诗集内页、页码、标题、贡献说明 | A4 / PDF |
+| `Collage Memory` | 图文诗 / cyber nostalgia | 照片底、半透明文本块、胶带/贴纸 | square / JPG |
+| `Collective Broadside` | turn-taking 共创 | 多作者署名、贡献边栏、lock-in stamp | A4 / PDF |
+| `Fragment Card` | 公共碎片 / 灵感卡片 | 大字短句、标签、小型来源说明 | postcard / JPG |
+
+模板交互：
+
+1. 用户选择一个 template。
+2. 系统自动填入 poem text、title、author、contributors、tags、lock timestamp。
+3. 用户只改少量参数：主色、纸张、字体、是否显示贡献、是否显示来源 fragment。
+4. Preview 实时变化。
+5. 用户点击 `Lock final design` 后，模板配置和 poem version 一起进入 History。
+
+### 11.2 Publication Studio 页面结构
+
+可以作为 Create 的第三步，也可以作为 locked final version 的独立页面。
+
+推荐 UI：
+
+- 顶部：`Write / Package / Lock & Export` stepper。
+- 左栏：`Mode`，在 `Free Studio` 和 `Templates` 之间切换。
+- 中间：实时画布 preview。
+- 右栏：属性面板。
+- 底部：`Save design draft`、`Lock final design`、`Export JPG`、`Export PDF`。
+
+属性面板分组：
+
+- `Canvas`：size、orientation、background、paper texture。
+- `Text`：font family、font size、line height、color、align、position。
+- `Decor`：stickers、tape、stamp、date mark、border。
+- `Credits`：author display、helpers、co-authors、anonymous source、contribution note。
+- `Export`：format、quality、include margins、filename。
+
+### 11.3 数据模型建议
+
+```ts
+type DesignMode = "free_studio" | "template";
+
+type CanvasSize = "postcard" | "square" | "story" | "a4" | "chapbook";
+
+type DesignTemplate = {
+  id: string;
+  name: string;
+  description: string;
+  bestFor: "fragment" | "draft" | "final" | "turn_taking";
+  canvasSize: CanvasSize;
+  previewTheme: "quiet" | "notebook" | "journal" | "collage" | "collective";
+  defaultStyle: PublicationDesignStyle;
+};
+
+type PublicationDesign = {
+  id: string;
+  workId: string;
+  versionId: string;
+  mode: DesignMode;
+  templateId?: string;
+  locked: boolean;
+  lockedAt?: string;
+  style: PublicationDesignStyle;
+  createdAt: string;
+  updatedAt: string;
+};
+
+type PublicationDesignStyle = {
+  canvasSize: CanvasSize;
+  background: {
+    kind: "solid" | "gradient" | "paper" | "image";
+    value: string;
+    texture?: "plain" | "linen" | "notebook" | "rice_paper" | "newsprint";
+  };
+  text: {
+    fontFamily: "serif" | "sans" | "mono" | "handwritten";
+    fontSize: number;
+    lineHeight: number;
+    color: string;
+    align: "left" | "center" | "right";
+    x: number;
+    y: number;
+    width: number;
+  };
+  decor: {
+    border: boolean;
+    stickerIds: string[];
+    stamp?: "locked" | "final" | "collective" | "fragment";
+    showDate: boolean;
+  };
+  credits: {
+    showAuthor: boolean;
+    showContributors: boolean;
+    showSourceFragment: boolean;
+    attributionText: string;
+  };
+};
+
+type ExportRecord = {
+  id: string;
+  workId: string;
+  designId: string;
+  format: "pdf" | "jpg";
+  filename: string;
+  exportedAt: string;
+};
+```
+
+### 11.4 导出功能设计
+
+导出应发生在用户确认 final version 之后。
+
+流程：
+
+1. 用户完成诗歌文本。
+2. 用户进入 Package。
+3. 用户选择自由编辑或模板。
+4. 用户点击 `Lock final design`。
+5. 系统记录 `version_locked` 和 `design_locked` event。
+6. 用户选择 `Export JPG` 或 `Export PDF`。
+7. 浏览器在本地下载文件。
+8. History 记录 `jpg_exported` 或 `pdf_exported`。
+
+实现建议：
+
+- JPG：使用 `html-to-image` 或 `dom-to-image-more` 把 preview DOM 转为 image，再触发下载。
+- PDF：使用 `jspdf`，把 canvas image 放入 PDF 页面。
+- MVP 可先导出当前 preview，不接后端、不上传文件。
+- 如果暂时不能安装依赖，可以先实现 `window.print()` / browser print-to-PDF fallback 和 SVG data URL JPG mock，但最终建议用 `html-to-image + jspdf`。
+
+### 11.5 素材策略
+
+MVP 不需要联网下载素材。可以先用代码生成素材：
+
+- 背景纸：CSS radial-gradient / linear-gradient / subtle noise。
+- 横线纸：repeating-linear-gradient。
+- 胶带：半透明 CSS rectangle + rotate。
+- 贴纸：内置 SVG / emoji-like shape，但界面上保持克制。
+- 印章：CSS border + uppercase text，例如 `LOCKED VERSION`、`FINAL`、`COLLECTIVE`。
+- 纸张边缘：box-shadow、border、outline、pseudo-element。
+
+如果后续需要更真实的素材，再联网寻找：
+
+- paper texture：Unsplash / Wikimedia Commons / ambientCG 的可商用纹理。
+- sticker / collage：OpenMoji、Twemoji、Noun Project 或自制 SVG。
+- 字体：Google Fonts 中适合 poetry 的 serif / mono / handwritten 字体。
+
+为了研究 demo 稳定，建议先不要依赖外部图片资产。外部素材容易带来加载失败、版权说明和导出跨域污染 canvas 的问题。
+
+### 11.6 AI / 提示词辅助
+
+Publication Assistant 可以帮助用户从诗歌内容生成视觉方向，但仍然不直接替用户锁定最终设计。
+
+AI 输出 JSON：
+
+```json
+{
+  "recommendedTemplateId": "quiet-postcard",
+  "reason": "The poem is short, intimate, and fragment-like.",
+  "visualMood": "private, soft, archival",
+  "palette": ["#111111", "#f7f1e7", "#001eff"],
+  "fontSuggestion": "serif",
+  "layoutNotes": ["large margins", "small source note", "avoid busy stickers"],
+  "exportSuggestion": "jpg"
+}
+```
+
+提示词原则：
+
+- 根据诗歌长度、语气、协作模式和 attribution 选择模板。
+- 不要生成与作品情绪冲突的装饰。
+- 对 turn-taking final version，优先保留贡献者和 lock timestamp。
+- 对 private fragment，优先保护隐私，默认隐藏真实作者。
+
+## 12. 现有 demo 到目标方案的改造清单
+
+### 12.1 数据层
 
 当前问题：
 
@@ -547,7 +758,7 @@ AI 可以在 final stage 提供：
 - 将 `poemLines` 移入 post/work version 结构。
 - 增加 mock spaces、channels、fragments、contributions、versionEvents。
 
-### 11.2 页面层
+### 12.2 页面层
 
 短期不必引入完整路由，可继续用 `view` 状态，但应扩展 view：
 
@@ -570,7 +781,7 @@ type View =
 - `Fragments`
 - `Map`
 
-### 11.3 Create 页面
+### 12.3 Create 页面
 
 新增第一步：选择创作类型。
 
@@ -596,7 +807,7 @@ type View =
 - lock rules
 - allowed media: image / GIF
 
-### 11.4 Detail / Workbench 页面
+### 12.4 Detail / Workbench 页面
 
 根据 mode 分流：
 
@@ -617,7 +828,7 @@ Turn-taking Writing 显示：
 - lock line。
 - collective attribution。
 
-### 11.5 Home feed
+### 12.5 Home feed
 
 Feed 需要更像 social media，但内容仍是创作支持。
 
@@ -638,13 +849,13 @@ Feed 需要更像 social media，但内容仍是创作支持。
 - lock status。
 - primary action，例如 comment、continue、save fragment、join challenge。
 
-## 12. MVP 开发优先级
+## 13. MVP 开发优先级
 
 ### P0：必须先做
 
 - 统一品牌为 LINESPACE，更新 README 和 title。
 - 把 `App.tsx` 拆分为 types、mockData、components、pages。
-- 新增 mode selector：`Facilitated Writing` / `Co-create Writing`。
+- 新增 mode selector：`Facilitated Writing` / `Co-creative Turn-taking Writing`。
 - 新增 Spaces 页面 tabs：Groups、Challenges、Fragments、Map。
 - 新增 Fragment Card 和 Fragment 创建入口。
 - Detail 页面补齐 author tools，让 AI suggestions 可在作品详情中处理。
@@ -660,35 +871,16 @@ Feed 需要更像 social media，但内容仍是创作支持。
 - Badge display。
 - Saved fragments。
 - Finished form card。
+- Publication Studio：自由美工编辑 + 固定模板套版。
+- Lock final design 后导出 JPG / PDF 到本地。
 
 ### P2：研究展示和完成度
 
 - PDF / image export mock。
 - GIF / generated image background。
+- 更丰富的纸张、贴纸、拼贴、印章素材库。
 - Better history timeline。
 - Moderation / report。
 - Group roles。
 - AI prompt integration mock。
 
-## 13. 给 Codex 的后续实现提示
-
-当需要让 Codex 继续写代码时，可以使用下面的任务描述：
-
-```md
-请基于 linespace-demo 当前 React/Vite/Tailwind demo 和 co-creative-turn-taking-design.md，实现 P0 功能：
-
-1. 将 App.tsx 中的类型和 mock 数据拆到 src/types.ts 与 src/data/mockData.ts。
-2. 增加 SpacesPage，包含 Groups、Challenges、Fragments、Map 四个 tab。
-3. 在 CreatePage 顶部加入创作类型和协作模式选择：
-   - Facilitated Writing
-   - Co-creative Turn-taking Writing
-4. 新增 Fragment 数据模型、mock fragments、FragmentCard，并支持 save / invite / start chat / start thread / branch alone 的前端状态变化。
-5. DetailPage 根据 post.mode 展示不同工作台：
-   - facilitated: comments + AI suggestions + accept/edit/ignore + lock version
-   - turn_taking: line sequence + turn queue + submit next line + lock line
-6. 把全局 poemLines 改为按 postId/versionId 存储，避免多个作品串数据。
-7. 新增 lockState、Contribution、VersionEvent 的 mock 状态，并在 HistoryPage 中展示真实事件时间线。
-8. 保持现有视觉风格，但修复固定四列导致的小屏问题，至少让 feed 和 workbench 在移动端可阅读。
-```
-
-实现时不要先接真实后端。先用 mock data 和本地 React state 把完整交互跑通，再抽象 API 层。

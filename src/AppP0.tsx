@@ -8,7 +8,6 @@ import {
   Repeat2,
   Search,
   Star,
-  Users,
   X,
 } from "lucide-react";
 import { type CSSProperties, type FormEvent, type ReactNode, useMemo, useRef, useState } from "react";
@@ -53,6 +52,8 @@ import type {
 } from "./types";
 
 type SpacesTab = "Groups" | "Challenges" | "Fragments" | "Map";
+type FragmentActionName = "save" | "invite" | "chat" | "thread" | "branch";
+type ChallengeStartMode = "chat" | "relay";
 
 const navItems: { label: string; view: View }[] = [
   { label: "Home", view: "home" },
@@ -132,6 +133,9 @@ export default function App() {
   const [poemLinesByPost, setPoemLinesByPost] = useState<Record<string, PoemLine[]>>(poemLinesByPostSeed);
   const [activePostId, setActivePostId] = useState(postsSeed[0].id);
   const [spacesTab, setSpacesTab] = useState<SpacesTab>("Groups");
+  const [activeSpaceId, setActiveSpaceId] = useState(spacesSeed[0].id);
+  const [activeChannelId, setActiveChannelId] = useState(channelsSeed.find((channel) => channel.kind === "challenge" || channel.kind === "turn_taking")?.id ?? channelsSeed[0].id);
+  const [spaceNotice, setSpaceNotice] = useState("Choose a group, challenge, or fragment to start a co-creative workflow.");
   const [profileTab, setProfileTab] = useState("Posts");
   const [commentDraft, setCommentDraft] = useState("");
   const [turnDraft, setTurnDraft] = useState("");
@@ -163,6 +167,9 @@ export default function App() {
   }, [activeComments, suggestions]);
   const activeContributions = useMemo(() => contributions.filter((item) => item.workId === activePost.id), [contributions, activePost.id]);
   const activeEvents = useMemo(() => versionEvents.filter((event) => event.workId === activePost.id), [versionEvents, activePost.id]);
+  const activeSpace = activePost.spaceId ? spacesSeed.find((space) => space.id === activePost.spaceId) : undefined;
+  const activeChannel = activePost.channelId ? channelsSeed.find((channel) => channel.id === activePost.channelId) : undefined;
+  const activeSourceFragment = activePost.sourceFragmentId ? fragments.find((fragment) => fragment.id === activePost.sourceFragmentId) : undefined;
   const activeSuggestionCount = countOpenSuggestions(activeComments, suggestions);
 
   const suggestionByComment = useMemo(() => {
@@ -204,6 +211,27 @@ export default function App() {
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
+  const openActiveContext = () => {
+    if (activeSourceFragment) {
+      setSpacesTab("Fragments");
+      navigate("spaces");
+      return;
+    }
+    if (activeChannel?.kind === "challenge" || activeChannel?.kind === "turn_taking") {
+      setSpacesTab("Challenges");
+      setActiveChannelId(activeChannel.id);
+      navigate("spaces");
+      return;
+    }
+    if (activeSpace) {
+      setSpacesTab("Groups");
+      setActiveSpaceId(activeSpace.id);
+      navigate("spaces");
+      return;
+    }
+    navigate("home");
+  };
+
   const runSearch = () => {
     setSearchQuery(searchInput.trim());
     navigate("home");
@@ -219,6 +247,13 @@ export default function App() {
   };
 
   const openPost = (id: string) => {
+    if (!posts.some((post) => post.id === id)) {
+      if (fragments.some((fragment) => fragment.id === id)) {
+        setSpacesTab("Fragments");
+        navigate("spaces");
+      }
+      return;
+    }
     setActivePostId(id);
     navigate("detail");
   };
@@ -564,41 +599,159 @@ export default function App() {
     navigate("profile");
   };
 
-  const fragmentAction = (fragmentId: string, action: "save" | "invite" | "chat" | "thread" | "branch") => {
+  const startGroupDraft = (spaceId: string, channelId?: string) => {
+    const space = spacesSeed.find((item) => item.id === spaceId);
+    if (!space) return;
+    const channel = channelsSeed.find((item) => item.id === channelId) ?? channelsSeed.find((item) => item.id === space.channels[0]);
+    const invited = space.members
+      .map((member) => Object.values(authors).find((author) => author.id === member.userId)?.handle)
+      .filter((handle): handle is string => Boolean(handle) && handle !== currentUser.handle)
+      .slice(0, 3);
+    const starter = space.kind === "publication"
+      ? "I am preparing this draft for a finished form, but the image still needs readers."
+      : "I brought this unfinished line to the room and asked the image to stay open.";
+    const next: Post = {
+      id: `p${Date.now()}`,
+      author: currentUser,
+      mode: "facilitated",
+      kind: "draft",
+      ownerId: currentUser.id,
+      authorIds: [currentUser.id],
+      spaceId: space.id,
+      channelId: channel?.id,
+      stage: "Started from",
+      source: `Started in ${space.name}`,
+      visibility: "group",
+      body: starter,
+      lines: [starter],
+      tags: Array.from(new Set([`#${space.kind}`, ...space.tags, ...(channel?.tags ?? [])])),
+      color: space.kind === "publication" ? "red" : "blue",
+      repliesOpen: true,
+      allowReplies: true,
+      allowBuild: true,
+      quoteAllowed: true,
+      allowLike: true,
+      showHistory: true,
+      invited,
+      likes: 0,
+      comments: 0,
+      quotes: 0,
+      saves: 0,
+      liked: false,
+      saved: false,
+      contributors: 1,
+      feedbackContract: defaultFeedbackContract,
+      attributionPolicy: helperAttribution,
+      lockState: { status: "unlocked", canBranch: true },
+      currentVersionId: `v-${Date.now()}`,
+      lockedLineIds: [],
+    };
+    setPosts((current) => [next, ...current]);
+    setPoemLinesByPost((current) => ({ ...current, [next.id]: makePoemLines(next) }));
+    addEvent(next.id, "created", { workflow: "group_feedback", space: space.name, channel: channel?.title, text: starter });
+    setActivePostId(next.id);
+    setActiveSpaceId(space.id);
+    if (channel) setActiveChannelId(channel.id);
+    setSpacesTab("Groups");
+    setSpaceNotice(`${space.name} opened a facilitated feedback draft. Readers can comment; the author decides what enters the poem.`);
+    navigate("detail");
+  };
+
+  const joinChallenge = (channelId: string, startMode: ChallengeStartMode) => {
+    const channel = channelsSeed.find((item) => item.id === channelId);
+    if (!channel) return;
+    const space = channel.spaceId ? spacesSeed.find((item) => item.id === channel.spaceId) : undefined;
+    const isRelay = startMode === "relay";
+    const starter = isRelay
+      ? channel.prompt ?? "The first line waits for the next turn."
+      : `Brainstorm for ${channel.title}: collect images first, then decide what becomes the poem.`;
+    const next: Post = {
+      id: `p${Date.now()}`,
+      author: currentUser,
+      mode: isRelay ? "turn_taking" : "facilitated",
+      kind: isRelay ? "thread" : "draft",
+      ownerId: currentUser.id,
+      authorIds: isRelay ? [currentUser.id, authors.jia.id, authors.lin.id] : [currentUser.id],
+      spaceId: channel.spaceId,
+      channelId: channel.id,
+      stage: "Started from",
+      source: `Challenge: ${channel.title}`,
+      visibility: channel.visibility === "public" ? "challenge" : "group",
+      body: starter,
+      lines: [starter],
+      tags: Array.from(new Set(["#challenge", ...channel.tags])),
+      color: isRelay ? "moon" : "photo",
+      repliesOpen: true,
+      allowReplies: true,
+      allowBuild: true,
+      quoteAllowed: true,
+      allowLike: true,
+      showHistory: true,
+      invited: isRelay ? [authors.jia.handle, authors.lin.handle] : [authors.lin.handle, authors.jia.handle, authors.maya.handle],
+      likes: 0,
+      comments: 0,
+      quotes: 0,
+      saves: 0,
+      liked: false,
+      saved: false,
+      contributors: isRelay ? 3 : 1,
+      feedbackContract: isRelay ? turnTakingContract : defaultFeedbackContract,
+      attributionPolicy: isRelay ? collectiveAttribution : helperAttribution,
+      lockState: { status: "unlocked", canBranch: true },
+      currentVersionId: `v-${Date.now()}`,
+      turnQueue: isRelay ? [authors.jia.id, authors.lin.id, currentUser.id] : undefined,
+      activeTurnUserId: isRelay ? authors.jia.id : undefined,
+      lockedLineIds: [],
+    };
+    setPosts((current) => [next, ...current]);
+    setPoemLinesByPost((current) => ({ ...current, [next.id]: makePoemLines(next) }));
+    addEvent(next.id, "created", { workflow: isRelay ? "challenge_turn_taking" : "challenge_group_chat", challenge: channel.title, space: space?.name, text: starter });
+    setActivePostId(next.id);
+    setActiveChannelId(channel.id);
+    if (space) setActiveSpaceId(space.id);
+    setSpacesTab("Challenges");
+    setSpaceNotice(`${channel.title} started as ${isRelay ? "a turn-taking relay" : "a group chat brainstorm"}.`);
+    navigate("detail");
+  };
+
+  const fragmentAction = (fragmentId: string, action: FragmentActionName) => {
     const fragment = fragments.find((item) => item.id === fragmentId);
     if (!fragment) return;
-    if (action === "thread" || action === "branch") {
+    if (action === "chat" || action === "thread" || action === "branch") {
       const isThread = action === "thread";
+      const isChat = action === "chat";
+      const starter = isChat ? `Reading this fragment together: ${fragment.text}` : fragment.text;
       const next: Post = {
         id: `p${Date.now()}`,
         author: currentUser,
         mode: isThread ? "turn_taking" : "facilitated",
         kind: isThread ? "thread" : "draft",
         ownerId: currentUser.id,
-        authorIds: [currentUser.id],
+        authorIds: isThread ? [currentUser.id, authors.lin.id, authors.jia.id] : [currentUser.id],
+        channelId: isChat || isThread ? "channel-fragment-pool" : undefined,
         sourceFragmentId: fragment.id,
         stage: "Started from",
-        source: `Inspired by ${fragment.anonymous ? "anonymous fragment" : fragment.creator?.name ?? "fragment"}`,
-        visibility: fragment.visibility === "private" ? "private" : "public",
-        body: fragment.text,
+        source: isChat ? `Group chat around ${fragment.anonymous ? "anonymous fragment" : fragment.creator?.name ?? "fragment"}` : `Inspired by ${fragment.anonymous ? "anonymous fragment" : fragment.creator?.name ?? "fragment"}`,
+        visibility: isChat ? (fragment.visibility === "private" ? "private" : "group") : fragment.visibility === "private" ? "private" : "public",
+        body: starter,
         lines: [fragment.text],
-        tags: Array.from(new Set(["#fragment_branch", ...fragment.tags])),
-        color: isThread ? "moon" : "blue",
+        tags: Array.from(new Set([isChat ? "#fragment_chat" : isThread ? "#fragment_relay" : "#fragment_branch", ...fragment.tags])),
+        color: isThread ? "moon" : isChat ? "photo" : "blue",
         repliesOpen: true,
         allowReplies: true,
         allowBuild: true,
         quoteAllowed: true,
         allowLike: true,
         showHistory: true,
-        invited: isThread ? ["@Lin", "@Jia"] : fragment.creator ? [fragment.creator.handle] : [],
+        invited: isThread ? [authors.lin.handle, authors.jia.handle] : fragment.creator ? [fragment.creator.handle] : [],
         likes: 0,
         comments: 0,
         quotes: 0,
         saves: 0,
         liked: false,
         saved: false,
-        contributors: 1,
-        feedbackContract: isThread ? turnTakingContract : defaultFeedbackContract,
+        contributors: isThread ? 3 : 1,
+        feedbackContract: isThread ? turnTakingContract : isChat ? closeReadingContract : defaultFeedbackContract,
         attributionPolicy: isThread ? collectiveAttribution : helperAttribution,
         lockState: { status: "unlocked", canBranch: true },
         currentVersionId: `v-${Date.now()}`,
@@ -615,14 +768,32 @@ export default function App() {
                 ...item,
                 inspiredWorks: Array.from(new Set([...item.inspiredWorks, next.id])),
                 activeThreadCount: item.activeThreadCount + (isThread ? 1 : 0),
-                branchCount: item.branchCount + (isThread ? 0 : 1),
+                activeChatCount: item.activeChatCount + (isChat ? 1 : 0),
+                branchCount: item.branchCount + (action === "branch" ? 1 : 0),
               }
             : item,
         ),
       );
-      addEvent(next.id, "created", { sourceFragmentId: fragment.id, text: fragment.text });
-      addEvent(next.id, "branch_created", { sourceFragmentId: fragment.id, action });
+      setContributions((current) => [
+        {
+          id: `contrib-${Date.now()}`,
+          workId: next.id,
+          contributorId: fragment.creatorId,
+          contributorName: fragment.anonymous ? "Anonymous fragment source" : fragment.creator?.name ?? "Fragment source",
+          anonymous: fragment.anonymous,
+          type: "curation",
+          sourceId: fragment.id,
+          status: action === "branch" ? "accepted" : "suggested",
+          attributionPreference: fragment.anonymous ? "anonymous" : "public_credit",
+          createdAt: nowIso(),
+        },
+        ...current,
+      ]);
+      addEvent(next.id, "created", { sourceFragmentId: fragment.id, action, text: fragment.text });
+      if (action === "branch") addEvent(next.id, "branch_created", { sourceFragmentId: fragment.id, action });
       setActivePostId(next.id);
+      setSpacesTab("Fragments");
+      setSpaceNotice(`Fragment action started: ${isChat ? "group chat brainstorm" : isThread ? "turn-taking relay" : "solo branch"}.`);
       navigate("detail");
       return;
     }
@@ -638,7 +809,11 @@ export default function App() {
         return { ...item, activeChatCount: item.activeChatCount + 1 };
       }),
     );
-    if (action === "save") addEvent(fragmentId, "fragment_saved", { fragmentId, text: fragment.text });
+    if (action === "save") {
+      addEvent(fragmentId, "fragment_saved", { fragmentId, text: fragment.text });
+      setSpaceNotice("Fragment saved to your notes.");
+    }
+    if (action === "invite") setSpaceNotice("Invitation marked. The creator can be pulled into a co-writing flow later.");
   };
 
   return (
@@ -672,6 +847,13 @@ export default function App() {
               fragments={fragments}
               posts={filteredPosts}
               comments={comments}
+              activeSpaceId={activeSpaceId}
+              setActiveSpaceId={setActiveSpaceId}
+              activeChannelId={activeChannelId}
+              setActiveChannelId={setActiveChannelId}
+              spaceNotice={spaceNotice}
+              startGroupDraft={startGroupDraft}
+              joinChallenge={joinChallenge}
               fragmentAction={fragmentAction}
               openPost={openPost}
               openQuote={openQuote}
@@ -740,6 +922,10 @@ export default function App() {
               turnDraft={turnDraft}
               activeSuggestionCount={activeSuggestionCount}
               contributions={activeContributions}
+              space={activeSpace}
+              channel={activeChannel}
+              sourceFragment={activeSourceFragment}
+              openContext={openActiveContext}
               setCommentDraft={setCommentDraft}
               setTurnDraft={setTurnDraft}
               addComment={(event) => addCommentToPost(activePost.id, event)}
@@ -955,6 +1141,13 @@ function SpacesPage({
   fragments,
   posts,
   comments,
+  activeSpaceId,
+  setActiveSpaceId,
+  activeChannelId,
+  setActiveChannelId,
+  spaceNotice,
+  startGroupDraft,
+  joinChallenge,
   fragmentAction,
   openPost,
   openQuote,
@@ -972,7 +1165,14 @@ function SpacesPage({
   fragments: Fragment[];
   posts: Post[];
   comments: Comment[];
-  fragmentAction: (fragmentId: string, action: "save" | "invite" | "chat" | "thread" | "branch") => void;
+  activeSpaceId: string;
+  setActiveSpaceId: (id: string) => void;
+  activeChannelId: string;
+  setActiveChannelId: (id: string) => void;
+  spaceNotice: string;
+  startGroupDraft: (spaceId: string, channelId?: string) => void;
+  joinChallenge: (channelId: string, startMode: ChallengeStartMode) => void;
+  fragmentAction: (fragmentId: string, action: FragmentActionName) => void;
   openPost: (id: string) => void;
   openQuote: (id: string) => void;
   openHistory: (id: string) => void;
@@ -995,89 +1195,316 @@ function SpacesPage({
           ))}
         </div>
       </div>
-      {tab === "Groups" && <GroupsPanel spaces={spaces} channels={channels} />}
-      {tab === "Challenges" && <ChallengesPanel channels={channels.filter((channel) => channel.kind === "challenge" || channel.kind === "turn_taking")} posts={posts} openPost={openPost} />}
+      {spaceNotice && <div className="mb-5 rounded-[20px] bg-[#eef0ff] px-5 py-4 text-sm font-black text-[#001eff]">{spaceNotice}</div>}
+      {tab === "Groups" && <GroupsPanel spaces={spaces} channels={channels} posts={posts} activeSpaceId={activeSpaceId} setActiveSpaceId={setActiveSpaceId} startGroupDraft={startGroupDraft} openPost={openPost} />}
+      {tab === "Challenges" && (
+        <ChallengesPanel
+          channels={channels.filter((channel) => channel.kind === "challenge" || channel.kind === "turn_taking")}
+          posts={posts}
+          activeChannelId={activeChannelId}
+          setActiveChannelId={setActiveChannelId}
+          joinChallenge={joinChallenge}
+          openPost={openPost}
+        />
+      )}
       {tab === "Fragments" && <FragmentsPanel fragments={fragments} fragmentAction={fragmentAction} />}
       {tab === "Map" && <StreamMapPanel posts={posts} comments={comments} openPost={openPost} openQuote={openQuote} openHistory={openHistory} toggleSave={toggleSave} />}
     </div>
   );
 }
 
-function GroupsPanel({ spaces, channels }: { spaces: Space[]; channels: Channel[] }) {
+function GroupsPanel({
+  spaces,
+  channels,
+  posts,
+  activeSpaceId,
+  setActiveSpaceId,
+  startGroupDraft,
+  openPost,
+}: {
+  spaces: Space[];
+  channels: Channel[];
+  posts: Post[];
+  activeSpaceId: string;
+  setActiveSpaceId: (id: string) => void;
+  startGroupDraft: (spaceId: string, channelId?: string) => void;
+  openPost: (id: string) => void;
+}) {
+  const activeSpace = spaces.find((space) => space.id === activeSpaceId) ?? spaces[0];
+  const relatedChannels = channels.filter((channel) => activeSpace.channels.includes(channel.id));
+  const relatedPosts = posts.filter((post) => post.spaceId === activeSpace.id);
+  const memberRows = activeSpace.members.map((member) => ({
+    ...member,
+    author: Object.values(authors).find((author) => author.id === member.userId),
+  }));
+  const kindLabel: Record<Space["kind"], string> = {
+    genre: "Genre room",
+    publication: "Publication room",
+    track: "Track room",
+    course: "Course workshop",
+    private_circle: "Community circle",
+  };
+
   return (
-    <div className="grid gap-5 lg:grid-cols-3">
-      {spaces.map((space) => {
-        const related = channels.filter((channel) => space.channels.includes(channel.id));
-        return (
-          <article key={space.id} className="rounded-[26px] border-2 border-[#001eff] bg-white p-5">
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <p className="font-mono text-sm font-black text-[#001eff]">{space.kind.replace("_", " ")}</p>
-                <h3 className="mt-2 text-2xl font-black leading-tight">{space.name}</h3>
+    <div className="grid gap-5 xl:grid-cols-[320px_minmax(0,1fr)]">
+      <aside className="grid content-start gap-3">
+        <div className="rounded-[24px] border-2 border-[#001eff] p-4">
+          <p className="font-mono text-xl font-black text-[#001eff]">Group types</p>
+          <p className="mt-2 text-sm font-bold text-[#737783]">Genre, publication, course, track, and community spaces keep feedback contextual.</p>
+        </div>
+        {spaces.map((space) => {
+          const active = activeSpace.id === space.id;
+          return (
+            <button key={space.id} type="button" onClick={() => setActiveSpaceId(space.id)} className={`rounded-[22px] border-2 p-4 text-left transition ${active ? "border-[#001eff] bg-[#eef0ff]" : "border-[#e8e0d9] bg-white"}`}>
+              <span className="font-mono text-xs font-black uppercase text-[#001eff]">{kindLabel[space.kind]}</span>
+              <span className="mt-2 block text-xl font-black leading-tight">{space.name}</span>
+              <span className="mt-2 block text-sm font-bold text-[#737783]">{space.members.length} members · {space.visibility.split("_").join(" ")}</span>
+            </button>
+          );
+        })}
+      </aside>
+
+      <section className="rounded-[28px] border-2 border-[#001eff] bg-white p-5 lg:p-7">
+        <div className="flex flex-col justify-between gap-5 lg:flex-row lg:items-start">
+          <div>
+            <p className="font-mono text-sm font-black uppercase text-[#001eff]">{kindLabel[activeSpace.kind]}</p>
+            <h3 className="mt-2 text-[34px] font-black leading-none lg:text-[42px]">{activeSpace.name}</h3>
+            <p className="mt-3 max-w-[720px] text-lg font-bold text-[#737783]">{activeSpace.description}</p>
+          </div>
+          <button type="button" onClick={() => startGroupDraft(activeSpace.id, relatedChannels[0]?.id)} className="rounded-full bg-[#001eff] px-6 py-3 text-left text-sm font-black text-white">
+            Start from draft
+          </button>
+        </div>
+
+        <div className="mt-5 flex flex-wrap gap-2">{activeSpace.tags.map((tag) => <BlueChip key={tag}>{tag}</BlueChip>)}</div>
+
+        <div className="mt-6 grid gap-5 lg:grid-cols-[minmax(0,1fr)_320px]">
+          <div className="grid gap-5">
+            <section>
+              <h4 className="font-mono text-2xl font-black text-[#001eff]">Group feedback workflow</h4>
+              <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                <WorkflowStep index="1" title="Name the contract" body="Author chooses encouragement, close reading, line revision, possible lines, or co-writing invite." />
+                <WorkflowStep index="2" title="Discuss in context" body="Members comment inside the group, keeping brainstorm material outside the poem." />
+                <WorkflowStep index="3" title="Organize signals" body="AI sorts comments into possible lines, themes, tone feedback, and revision hints." />
+                <WorkflowStep index="4" title="Author locks" body="The author accepts, edits, ignores, then locks a version with contribution history." />
               </div>
-              <Users className="text-[#001eff]" />
+            </section>
+
+            <section>
+              <h4 className="font-mono text-2xl font-black text-[#001eff]">Channels</h4>
+              <div className="mt-4 grid gap-3">
+                {relatedChannels.map((channel) => (
+                  <div key={channel.id} className="rounded-[20px] border-2 border-[#e8e0d9] p-4">
+                    <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
+                      <div>
+                        <p className="font-black text-[#001eff]">{channel.title}</p>
+                        <p className="mt-1 text-sm font-bold text-[#737783]">{channel.prompt}</p>
+                      </div>
+                      <button type="button" onClick={() => startGroupDraft(activeSpace.id, channel.id)} className="rounded-full border-2 border-[#001eff] px-5 py-2 text-sm font-black text-[#001eff]">
+                        Start feedback draft
+                      </button>
+                    </div>
+                    <div className="mt-3 flex flex-wrap gap-2">{channel.tags.map((tag) => <BlueChip key={tag}>{tag}</BlueChip>)}</div>
+                  </div>
+                ))}
+              </div>
+            </section>
+          </div>
+
+          <aside className="grid content-start gap-4">
+            <div className="rounded-[22px] bg-[#eef0ff] p-4">
+              <p className="font-mono text-xl font-black text-[#001eff]">Group contract</p>
+              <div className="mt-3 grid gap-2 text-sm font-bold text-[#3b3d45]">
+                {activeSpace.rules.map((rule) => <p key={rule}>- {rule}</p>)}
+              </div>
             </div>
-            <p className="mt-4 min-h-[72px] text-sm font-bold text-[#737783]">{space.description}</p>
-            <div className="mt-4 flex flex-wrap gap-2">{space.tags.map((tag) => <BlueChip key={tag}>{tag}</BlueChip>)}</div>
-            <div className="mt-5 grid gap-2">
-              {related.map((channel) => (
-                <div key={channel.id} className="rounded-[16px] bg-[#eef0ff] px-4 py-3">
-                  <p className="font-black text-[#001eff]">{channel.title}</p>
-                  <p className="text-xs font-bold text-[#737783]">{channel.participants} participants · {channel.defaultMode.replace("_", " ")}</p>
-                </div>
-              ))}
+            <div className="rounded-[22px] border-2 border-[#e8e0d9] p-4">
+              <p className="font-mono text-xl font-black text-[#001eff]">Members</p>
+              <div className="mt-3 grid gap-3">
+                {memberRows.map((member) => (
+                  <div key={member.userId} className="flex items-center gap-3">
+                    {member.author && <Avatar author={member.author} muted />}
+                    <div className="min-w-0">
+                      <p className="truncate font-black">{member.author?.name ?? "Member"}</p>
+                      <p className="text-xs font-bold text-[#737783]">{member.role} · {member.badges.join(", ")}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
-            <div className="mt-5 border-t border-[#e8e0d9] pt-4">
-              <p className="text-xs font-black text-[#737783]">Group contract</p>
-              <p className="mt-1 text-sm font-bold">{space.rules[0]}</p>
+            <div className="rounded-[22px] border-2 border-[#001eff] p-4">
+              <p className="font-mono text-xl font-black text-[#001eff]">Recent works</p>
+              <div className="mt-3 grid gap-2">
+                {relatedPosts.slice(0, 3).map((post) => (
+                  <button key={post.id} type="button" onClick={() => openPost(post.id)} className="rounded-[16px] bg-[#eef0ff] p-3 text-left">
+                    <p className="text-sm font-black text-[#001eff]">{post.mode === "turn_taking" ? "Turn-taking" : "Facilitated"} · {post.lockState.status}</p>
+                    <p className="mt-1 text-sm font-bold">{shorten(post.body, 72)}</p>
+                  </button>
+                ))}
+                {relatedPosts.length === 0 && <p className="text-sm font-bold text-[#737783]">No works in this group yet.</p>}
+              </div>
             </div>
-          </article>
-        );
-      })}
+          </aside>
+        </div>
+      </section>
     </div>
   );
 }
 
-function ChallengesPanel({ channels, posts, openPost }: { channels: Channel[]; posts: Post[]; openPost: (id: string) => void }) {
+function ChallengesPanel({
+  channels,
+  posts,
+  activeChannelId,
+  setActiveChannelId,
+  joinChallenge,
+  openPost,
+}: {
+  channels: Channel[];
+  posts: Post[];
+  activeChannelId: string;
+  setActiveChannelId: (id: string) => void;
+  joinChallenge: (channelId: string, startMode: ChallengeStartMode) => void;
+  openPost: (id: string) => void;
+}) {
+  const activeChannel = channels.find((channel) => channel.id === activeChannelId) ?? channels[0];
+  const activePosts = posts.filter((post) => post.channelId === activeChannel.id);
+
   return (
-    <div className="grid gap-5 lg:grid-cols-2">
-      {channels.map((channel) => {
-        const relatedPosts = posts.filter((post) => post.channelId === channel.id);
-        return (
-          <article key={channel.id} className="rounded-[28px] border-2 border-[#001eff] p-5">
-            <div className="flex flex-wrap items-start justify-between gap-4">
-              <div>
-                <p className="font-mono text-sm font-black text-[#001eff]">{channel.defaultMode === "turn_taking" ? "Turn-taking challenge" : "Challenge"}</p>
-                <h3 className="mt-2 text-3xl font-black leading-none">{channel.title}</h3>
+    <div className="grid gap-5 xl:grid-cols-[minmax(0,420px)_minmax(0,1fr)]">
+      <section className="grid content-start gap-4">
+        {channels.map((channel) => {
+          const relatedPosts = posts.filter((post) => post.channelId === channel.id);
+          const active = channel.id === activeChannel.id;
+          return (
+            <article key={channel.id} className={`rounded-[26px] border-2 p-5 ${active ? "border-[#001eff] bg-[#eef0ff]" : "border-[#e8e0d9] bg-white"}`}>
+              <button type="button" onClick={() => setActiveChannelId(channel.id)} className="w-full text-left">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <p className="font-mono text-sm font-black uppercase text-[#001eff]">{channel.defaultMode === "turn_taking" ? "Form-limited relay" : "Theme challenge"}</p>
+                    <h3 className="mt-2 text-2xl font-black leading-tight">{channel.title}</h3>
+                  </div>
+                  <span className="rounded-full bg-[#001eff] px-3 py-1 text-xs font-black text-white">{channel.status}</span>
+                </div>
+                <p className="mt-4 text-sm font-bold text-[#3b3d45]">{channel.prompt}</p>
+              </button>
+              <div className="mt-4 flex flex-wrap gap-2">{channel.tags.map((tag) => <BlueChip key={tag}>{tag}</BlueChip>)}</div>
+              <div className="mt-4 grid grid-cols-3 gap-2 text-center">
+                <MetricBlock value={String(channel.participants)} label="people" />
+                <MetricBlock value={String(relatedPosts.length)} label="works" />
+                <MetricBlock value={channel.deadline ? "due" : "open"} label={channel.deadline ?? "no date"} />
               </div>
-              <span className="rounded-full bg-[#001eff] px-4 py-2 text-sm font-black text-white">{channel.status}</span>
+              <div className="mt-4 grid gap-2 sm:grid-cols-2">
+                <button type="button" onClick={() => joinChallenge(channel.id, "chat")} className="rounded-full bg-[#001eff] px-4 py-2 text-sm font-black text-white">
+                  Group chat brainstorm
+                </button>
+                <button type="button" onClick={() => joinChallenge(channel.id, "relay")} className="rounded-full border-2 border-[#ff4b4f] px-4 py-2 text-sm font-black text-[#ff4b4f]">
+                  Turn-taking thread
+                </button>
+              </div>
+            </article>
+          );
+        })}
+      </section>
+
+      <section className="rounded-[28px] border-2 border-[#001eff] bg-white p-5 lg:p-7">
+        <div className="flex flex-col justify-between gap-5 lg:flex-row lg:items-start">
+          <div>
+            <p className="font-mono text-sm font-black uppercase text-[#001eff]">Challenge workspace</p>
+            <h3 className="mt-2 text-[34px] font-black leading-none lg:text-[42px]">{activeChannel.title}</h3>
+            <p className="mt-3 max-w-[760px] text-lg font-bold text-[#737783]">{activeChannel.prompt}</p>
+          </div>
+          <span className="rounded-full bg-[#ff4b4f] px-5 py-2 text-sm font-black text-white">{activeChannel.deadline ? `Due ${activeChannel.deadline}` : "Open ended"}</span>
+        </div>
+
+        <div className="mt-6 grid gap-4 md:grid-cols-2">
+          <div className="rounded-[22px] bg-[#eef0ff] p-5">
+            <p className="font-mono text-xl font-black text-[#001eff]">Group chat brainstorm</p>
+            <p className="mt-2 text-sm font-bold leading-relaxed text-[#3b3d45]">Use this when participants need images, direction, and feedback before any line becomes canonical.</p>
+            <button type="button" onClick={() => joinChallenge(activeChannel.id, "chat")} className="mt-4 rounded-full bg-[#001eff] px-5 py-2 text-sm font-black text-white">
+              Start chat draft
+            </button>
+          </div>
+          <div className="rounded-[22px] bg-[#fff3f6] p-5">
+            <p className="font-mono text-xl font-black text-[#ff4b4f]">Turn-taking relay</p>
+            <p className="mt-2 text-sm font-bold leading-relaxed text-[#3b3d45]">Use this when each turn adds a line, the queue is visible, and lock-in preserves shared authorship.</p>
+            <button type="button" onClick={() => joinChallenge(activeChannel.id, "relay")} className="mt-4 rounded-full bg-[#ff4b4f] px-5 py-2 text-sm font-black text-white">
+              Start relay thread
+            </button>
+          </div>
+        </div>
+
+        <div className="mt-6 grid gap-5 lg:grid-cols-[minmax(0,1fr)_300px]">
+          <div>
+            <h4 className="font-mono text-2xl font-black text-[#001eff]">Challenge flow</h4>
+            <div className="mt-4 grid gap-3 sm:grid-cols-2">
+              <WorkflowStep index="1" title="Join challenge" body="Participants see theme, tags, form, deadline, and active works." />
+              <WorkflowStep index="2" title="Choose pathway" body="Brainstorm stays outside the poem; relay lines enter a visible sequence." />
+              <WorkflowStep index="3" title="Track turns" body="Queue, pass rules, locked lines, and collective attribution make boundaries explicit." />
+              <WorkflowStep index="4" title="Finish together" body="The final form can be locked with a contribution chain and shared credit." />
             </div>
-            <p className="mt-5 text-lg font-bold leading-snug">{channel.prompt}</p>
-            <div className="mt-5 flex flex-wrap gap-2">{channel.tags.map((tag) => <BlueChip key={tag}>{tag}</BlueChip>)}</div>
-            <div className="mt-5 grid grid-cols-3 gap-3 text-center">
-              <MetricBlock value={String(channel.participants)} label="people" />
-              <MetricBlock value={String(relatedPosts.length)} label="threads" />
-              <MetricBlock value={channel.deadline ? "due" : "open"} label={channel.deadline ?? "no deadline"} />
-            </div>
-            <div className="mt-5 grid gap-3">
-              {relatedPosts.slice(0, 2).map((post) => (
-                <button key={post.id} type="button" onClick={() => openPost(post.id)} className="rounded-[18px] bg-[#eef0ff] p-4 text-left">
-                  <p className="font-black text-[#001eff]">{post.mode === "turn_taking" ? "Relay thread" : "Feedback draft"}</p>
-                  <p className="mt-1 text-sm font-bold">{post.body}</p>
+          </div>
+          <aside className="rounded-[22px] border-2 border-[#e8e0d9] p-4">
+            <p className="font-mono text-xl font-black text-[#001eff]">Active works</p>
+            <div className="mt-3 grid gap-2">
+              {activePosts.slice(0, 4).map((post) => (
+                <button key={post.id} type="button" onClick={() => openPost(post.id)} className="rounded-[16px] bg-[#eef0ff] p-3 text-left">
+                  <p className="text-sm font-black text-[#001eff]">{post.mode === "turn_taking" ? "Relay thread" : "Chat brainstorm"}</p>
+                  <p className="mt-1 text-sm font-bold">{shorten(post.body, 70)}</p>
                 </button>
               ))}
+              {activePosts.length === 0 && <p className="text-sm font-bold text-[#737783]">No active work yet. Start the first one.</p>}
             </div>
-          </article>
-        );
-      })}
+          </aside>
+        </div>
+      </section>
     </div>
   );
 }
 
-function FragmentsPanel({ fragments, fragmentAction }: { fragments: Fragment[]; fragmentAction: (fragmentId: string, action: "save" | "invite" | "chat" | "thread" | "branch") => void }) {
+function FragmentsPanel({ fragments, fragmentAction }: { fragments: Fragment[]; fragmentAction: (fragmentId: string, action: FragmentActionName) => void }) {
+  const savedCount = fragments.reduce((sum, fragment) => sum + fragment.savedBy.length, 0);
+  const activeWorks = fragments.reduce((sum, fragment) => sum + fragment.activeChatCount + fragment.activeThreadCount + fragment.branchCount, 0);
   return (
-    <div className="grid gap-5 lg:grid-cols-2">
-      {fragments.map((fragment) => <FragmentCard key={fragment.id} fragment={fragment} fragmentAction={fragmentAction} />)}
+    <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_320px]">
+      <section>
+        <div className="mb-5 rounded-[26px] border-2 border-[#001eff] p-5">
+          <p className="font-mono text-2xl font-black text-[#001eff]">Fragment commons</p>
+          <p className="mt-2 text-sm font-bold text-[#737783]">Shared lines, images, and stuck phrases can become saved notes, invitations, group chats, relays, or solo branches.</p>
+        </div>
+        <div className="grid gap-5 lg:grid-cols-2">
+          {fragments.map((fragment) => <FragmentCard key={fragment.id} fragment={fragment} fragmentAction={fragmentAction} />)}
+        </div>
+      </section>
+      <aside className="grid content-start gap-4">
+        <div className="rounded-[24px] bg-[#eef0ff] p-5">
+          <p className="font-mono text-xl font-black text-[#001eff]">Commons signals</p>
+          <div className="mt-4 grid grid-cols-2 gap-3 text-center">
+            <MetricBlock value={String(fragments.length)} label="fragments" />
+            <MetricBlock value={String(savedCount)} label="saves" />
+            <MetricBlock value={String(activeWorks)} label="started" />
+            <MetricBlock value={String(fragments.filter((fragment) => fragment.anonymous).length)} label="anonymous" />
+          </div>
+        </div>
+        <div className="rounded-[24px] border-2 border-[#001eff] p-5">
+          <p className="font-mono text-xl font-black text-[#001eff]">Fragment workflow</p>
+          <div className="mt-4 grid gap-3">
+            <WorkflowStep index="1" title="Save" body="Keep a private note without turning it into a poem yet." />
+            <WorkflowStep index="2" title="Invite" body="Ask the source contributor to join a co-writing path when credit is allowed." />
+            <WorkflowStep index="3" title="Start chat" body="Open a facilitated brainstorm where comments do not enter the poem until accepted." />
+            <WorkflowStep index="4" title="Start thread or branch" body="Create a turn-taking relay or a solo branch while preserving source history." />
+          </div>
+        </div>
+      </aside>
+    </div>
+  );
+}
+
+function WorkflowStep({ index, title, body }: { index: string; title: string; body: string }) {
+  return (
+    <div className="rounded-[18px] border-2 border-[#e8e0d9] bg-white p-4">
+      <span className="grid h-8 w-8 place-items-center rounded-full bg-[#001eff] text-sm font-black text-white">{index}</span>
+      <p className="mt-3 font-black">{title}</p>
+      <p className="mt-1 text-sm font-bold leading-relaxed text-[#737783]">{body}</p>
     </div>
   );
 }
@@ -1315,6 +1742,10 @@ function DetailPage(props: {
   turnDraft: string;
   activeSuggestionCount: number;
   contributions: Contribution[];
+  space?: Space;
+  channel?: Channel;
+  sourceFragment?: Fragment;
+  openContext: () => void;
   setCommentDraft: (value: string) => void;
   setTurnDraft: (value: string) => void;
   addComment: (event: FormEvent) => void;
@@ -1341,6 +1772,10 @@ function DetailPage(props: {
     turnDraft,
     activeSuggestionCount,
     contributions,
+    space,
+    channel,
+    sourceFragment,
+    openContext,
     setCommentDraft,
     setTurnDraft,
     addComment,
@@ -1365,7 +1800,9 @@ function DetailPage(props: {
   return (
     <div>
       <BrandBar showSearch navigate={navigate} searchInput={searchInput} setSearchInput={setSearchInput} runSearch={runSearch} />
-      <button type="button" onClick={() => navigate("home")} className="mb-5 flex items-center gap-4 font-mono text-[24px] font-black lg:text-[27px]">{"<"} back to home</button>
+      <button type="button" onClick={space || channel || sourceFragment ? openContext : () => navigate("home")} className="mb-5 flex items-center gap-4 font-mono text-[24px] font-black lg:text-[27px]">
+        {"<"} {space || channel || sourceFragment ? "back to space" : "back to home"}
+      </button>
       <div className="grid gap-5 lg:grid-cols-[325px_minmax(0,1fr)]">
         <section>
           <PoemCard post={post} openPost={() => undefined} openQuote={() => (post.quoteAllowed ? navigate("quote") : undefined)} toggleLike={toggleLike} toggleSave={toggleSave} forcePoem />
@@ -1377,6 +1814,7 @@ function DetailPage(props: {
               {locked ? "Version locked" : "Lock version"}
             </button>
           </div>
+          {(space || channel || sourceFragment) && <OriginPanel post={post} space={space} channel={channel} sourceFragment={sourceFragment} openContext={openContext} />}
         </section>
         {post.mode === "facilitated" ? (
           <FacilitatedWorkbench
@@ -1426,6 +1864,60 @@ function DetailPage(props: {
           onSecondary={() => openHistory(post.id)}
         />
       )}
+    </div>
+  );
+}
+
+function OriginPanel({
+  post,
+  space,
+  channel,
+  sourceFragment,
+  openContext,
+}: {
+  post: Post;
+  space?: Space;
+  channel?: Channel;
+  sourceFragment?: Fragment;
+  openContext: () => void;
+}) {
+  let pathway = "Facilitated writing";
+  if (post.mode === "turn_taking") pathway = channel?.kind === "challenge" ? "Challenge relay" : "Turn-taking relay";
+  else if (sourceFragment) pathway = "Fragment-based brainstorm";
+  else if (space) pathway = "Group feedback";
+  return (
+    <div className="mt-5 rounded-[22px] border-2 border-[#e8e0d9] p-4">
+      <p className="font-mono text-xl font-black text-[#001eff]">Origin / Workflow</p>
+      <div className="mt-3 grid gap-3 text-sm font-bold">
+        <div className="rounded-[16px] bg-[#eef0ff] p-3">
+          <p className="text-xs font-black uppercase text-[#001eff]">Pathway</p>
+          <p className="mt-1">{pathway}</p>
+        </div>
+        {space && (
+          <div className="rounded-[16px] border border-[#e8e0d9] p-3">
+            <p className="text-xs font-black uppercase text-[#737783]">Group</p>
+            <p className="mt-1">{space.name}</p>
+            <p className="mt-1 text-xs text-[#737783]">{space.kind.replace("_", " ")} · {space.visibility.split("_").join(" ")}</p>
+          </div>
+        )}
+        {channel && (
+          <div className="rounded-[16px] border border-[#e8e0d9] p-3">
+            <p className="text-xs font-black uppercase text-[#737783]">Channel</p>
+            <p className="mt-1">{channel.title}</p>
+            <p className="mt-1 text-xs text-[#737783]">{channel.kind.replace("_", " ")} · {channel.defaultMode.replace("_", " ")}</p>
+          </div>
+        )}
+        {sourceFragment && (
+          <div className="rounded-[16px] border border-[#e8e0d9] p-3">
+            <p className="text-xs font-black uppercase text-[#737783]">Source fragment</p>
+            <p className="mt-1 text-[#001eff]">"{sourceFragment.text}"</p>
+            <p className="mt-1 text-xs text-[#737783]">{sourceFragment.anonymous ? "Anonymous source" : sourceFragment.creator?.handle ?? "Credited source"}</p>
+          </div>
+        )}
+      </div>
+      <button type="button" onClick={openContext} className="mt-4 rounded-full bg-[#001eff] px-5 py-2 text-sm font-black text-white">
+        Open source space
+      </button>
     </div>
   );
 }
@@ -1924,7 +2416,7 @@ function ActionButton({ children, icon, onClick, active = false, danger = false,
   );
 }
 
-function FragmentCard({ fragment, fragmentAction }: { fragment: Fragment; fragmentAction: (fragmentId: string, action: "save" | "invite" | "chat" | "thread" | "branch") => void }) {
+function FragmentCard({ fragment, fragmentAction }: { fragment: Fragment; fragmentAction: (fragmentId: string, action: FragmentActionName) => void }) {
   const saved = fragment.savedBy.includes(currentUser.id);
   const invited = fragment.invitedBy.includes(currentUser.id);
   return (
