@@ -1,3 +1,8 @@
+// P0 implementation lives in AppP0. The original single-file prototype is kept
+// below as a commented reference so it no longer participates in compilation.
+export { default } from "./AppP0";
+
+/*
 import {
   Bookmark,
   Check,
@@ -510,7 +515,7 @@ function classifyReaderResponse(text: string): { kind: string; group?: Suggestio
     return { kind: "revision suggestion", group: "Revision hints", suggestion: text };
   }
   if (/\b(feels|feeling|bitter|sad|tender|uncanny|lonely|emotional|hurts|real)\b/.test(normalized)) {
-    return { kind: "emotional feedback", group: "Tone feedback", suggestion: text.replace(/^this feels\s*/i, "Tone: ") };
+    return { kind: "emotional feedback", group: "Tone feedback", suggestion: text.replace(new RegExp("^this feels\\s*", "i"), "Tone: ") };
   }
   if (/\b(theme|about|memory|archive|self-archive|digital|nostalgia|identity|private|unsent)\b/.test(normalized)) {
     return { kind: "theme interpretation", group: "Reader themes", suggestion: text };
@@ -2231,3 +2236,4 @@ function presetImage(preset?: Post["imagePreset"]) {
   }
   return undefined;
 }
+*/
