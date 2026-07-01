@@ -1,13 +1,20 @@
 import {
+  AtSign,
   Bookmark,
   Check,
   Hash,
   Heart,
   MessageCircle,
+  Megaphone,
+  Pin,
+  PlusCircle,
   Quote,
   Repeat2,
+  Reply,
   Search,
+  Send,
   Star,
+  Users,
   X,
 } from "lucide-react";
 import { type CSSProperties, type FormEvent, type ReactNode, useMemo, useRef, useState } from "react";
@@ -21,6 +28,8 @@ import {
   currentUser,
   defaultFeedbackContract,
   fragmentsSeed,
+  groupChatMessagesSeed,
+  groupTopicsSeed,
   helperAttribution,
   poemLinesByPostSeed,
   postsSeed,
@@ -41,6 +50,9 @@ import type {
   EditablePoemLine,
   FeedbackContract,
   Fragment,
+  GroupChatMessage,
+  GroupTopic,
+  GroupTopicType,
   PoemLine,
   Post,
   SearchProps,
@@ -54,6 +66,7 @@ import type {
 type SpacesTab = "Groups" | "Challenges" | "Fragments" | "Map";
 type FragmentActionName = "save" | "invite" | "chat" | "thread" | "branch";
 type ChallengeStartMode = "chat" | "relay";
+type TopicComposerMode = GroupTopicType;
 
 const navItems: { label: string; view: View }[] = [
   { label: "Home", view: "home" },
@@ -70,6 +83,13 @@ const creationKinds: CreationKind[] = [
   "Challenge response",
   "Turn-taking thread",
   "Final version",
+];
+
+const topicModes: { value: TopicComposerMode; label: string; hint: string }[] = [
+  { value: "poetry_discussion", label: "Poetry topic", hint: "Discuss image, rhythm, form, or theme." },
+  { value: "free_chat", label: "Free chat", hint: "Open conversation for the group." },
+  { value: "post_forward", label: "Forward post", hint: "Bring a post into the group for response." },
+  { value: "co_creation_call", label: "Co-creation call", hint: "Invite members to branch or write together." },
 ];
 
 const eventCopy: Record<VersionEvent["type"], string> = {
@@ -122,6 +142,10 @@ function nowIso() {
   return new Date().toISOString();
 }
 
+function extractMentions(text: string) {
+  return Array.from(new Set(text.match(/@[A-Za-z0-9_.-]+/g) ?? []));
+}
+
 export default function App() {
   const [view, setView] = useState<View>("home");
   const [posts, setPosts] = useState<Post[]>(postsSeed);
@@ -130,14 +154,24 @@ export default function App() {
   const [fragments, setFragments] = useState<Fragment[]>(fragmentsSeed);
   const [contributions, setContributions] = useState<Contribution[]>(contributionsSeed);
   const [versionEvents, setVersionEvents] = useState<VersionEvent[]>(versionEventsSeed);
+  const [groupTopics, setGroupTopics] = useState<GroupTopic[]>(groupTopicsSeed);
+  const [groupMessages, setGroupMessages] = useState<GroupChatMessage[]>(groupChatMessagesSeed);
   const [poemLinesByPost, setPoemLinesByPost] = useState<Record<string, PoemLine[]>>(poemLinesByPostSeed);
   const [activePostId, setActivePostId] = useState(postsSeed[0].id);
   const [spacesTab, setSpacesTab] = useState<SpacesTab>("Groups");
   const [activeSpaceId, setActiveSpaceId] = useState(spacesSeed[0].id);
+  const [activeGroupChatSpaceId, setActiveGroupChatSpaceId] = useState(spacesSeed[0].id);
+  const [activeGroupTopicId, setActiveGroupTopicId] = useState<string>("topic-cyber-reading");
   const [activeChannelId, setActiveChannelId] = useState(channelsSeed.find((channel) => channel.kind === "challenge" || channel.kind === "turn_taking")?.id ?? channelsSeed[0].id);
   const [spaceNotice, setSpaceNotice] = useState("Choose a group, challenge, or fragment to start a co-creative workflow.");
   const [profileTab, setProfileTab] = useState("Posts");
   const [commentDraft, setCommentDraft] = useState("");
+  const [groupChatDraft, setGroupChatDraft] = useState("");
+  const [quotedGroupMessageId, setQuotedGroupMessageId] = useState<string | undefined>();
+  const [topicTitleDraft, setTopicTitleDraft] = useState("");
+  const [topicStarterDraft, setTopicStarterDraft] = useState("");
+  const [topicMode, setTopicMode] = useState<TopicComposerMode>("poetry_discussion");
+  const [topicPostId, setTopicPostId] = useState(postsSeed[0].id);
   const [turnDraft, setTurnDraft] = useState("");
   const [quoteDraft, setQuoteDraft] = useState("I saved a version of myself inside the photo I never posted.");
   const [createDraft, setCreateDraft] = useState("I dreamed that AI remembered a city I had never visited.");
@@ -170,6 +204,10 @@ export default function App() {
   const activeSpace = activePost.spaceId ? spacesSeed.find((space) => space.id === activePost.spaceId) : undefined;
   const activeChannel = activePost.channelId ? channelsSeed.find((channel) => channel.id === activePost.channelId) : undefined;
   const activeSourceFragment = activePost.sourceFragmentId ? fragments.find((fragment) => fragment.id === activePost.sourceFragmentId) : undefined;
+  const activeGroupChatSpace = spacesSeed.find((space) => space.id === activeGroupChatSpaceId) ?? spacesSeed[0];
+  const activeGroupTopics = useMemo(() => groupTopics.filter((topic) => topic.spaceId === activeGroupChatSpace.id), [groupTopics, activeGroupChatSpace.id]);
+  const activeGroupMessages = useMemo(() => groupMessages.filter((message) => message.spaceId === activeGroupChatSpace.id), [groupMessages, activeGroupChatSpace.id]);
+  const activeGroupPosts = useMemo(() => posts.filter((post) => post.spaceId === activeGroupChatSpace.id), [posts, activeGroupChatSpace.id]);
   const activeSuggestionCount = countOpenSuggestions(activeComments, suggestions);
 
   const suggestionByComment = useMemo(() => {
@@ -230,6 +268,109 @@ export default function App() {
       return;
     }
     navigate("home");
+  };
+
+  const openGroupChat = (spaceId: string, topicId?: string) => {
+    const fallbackTopic = groupTopics.find((topic) => topic.spaceId === spaceId);
+    setActiveGroupChatSpaceId(spaceId);
+    setActiveSpaceId(spaceId);
+    setSpacesTab("Groups");
+    setActiveGroupTopicId(topicId ?? fallbackTopic?.id ?? "");
+    setQuotedGroupMessageId(undefined);
+    navigate("groupChat");
+  };
+
+  const addMentionToGroupDraft = (handle: string) => {
+    setGroupChatDraft((current) => `${current}${current.trim() ? " " : ""}${handle} `);
+  };
+
+  const sendGroupMessage = (event: FormEvent) => {
+    event.preventDefault();
+    const text = groupChatDraft.trim();
+    if (!text) return;
+    const next: GroupChatMessage = {
+      id: `gm-${Date.now()}`,
+      spaceId: activeGroupChatSpace.id,
+      topicId: activeGroupTopicId || undefined,
+      author: currentUser,
+      text,
+      createdAt: nowIso(),
+      mentions: extractMentions(text),
+      quoteMessageId: quotedGroupMessageId,
+      reactions: 0,
+    };
+    setGroupMessages((current) => [...current, next]);
+    setGroupChatDraft("");
+    setQuotedGroupMessageId(undefined);
+  };
+
+  const startGroupTopic = (event: FormEvent) => {
+    event.preventDefault();
+    const title = topicTitleDraft.trim() || (topicMode === "free_chat" ? "Open chat" : topicMode === "post_forward" ? "Forwarded post discussion" : topicMode === "co_creation_call" ? "Co-creation call" : "Poetry topic");
+    const starter = topicStarterDraft.trim() || "Opening this thread for the group.";
+    const attachedPostId = topicMode === "post_forward" || topicMode === "co_creation_call" ? topicPostId : undefined;
+    const nextTopic: GroupTopic = {
+      id: `topic-${Date.now()}`,
+      spaceId: activeGroupChatSpace.id,
+      title,
+      type: topicMode,
+      starter,
+      createdBy: currentUser,
+      createdAt: nowIso(),
+      postId: attachedPostId,
+      tags: topicMode === "post_forward" ? ["#post_forward", "#group_discussion"] : topicMode === "co_creation_call" ? ["#co_creation", "#call"] : topicMode === "free_chat" ? ["#free_chat"] : ["#poetry_discussion"],
+      unread: 0,
+      active: true,
+    };
+    const nextMessage: GroupChatMessage = {
+      id: `gm-${Date.now()}-topic`,
+      spaceId: activeGroupChatSpace.id,
+      topicId: nextTopic.id,
+      author: currentUser,
+      text: starter,
+      createdAt: nowIso(),
+      mentions: extractMentions(starter),
+      postId: attachedPostId,
+      reactions: 0,
+    };
+    setGroupTopics((current) => [nextTopic, ...current]);
+    setGroupMessages((current) => [...current, nextMessage]);
+    setActiveGroupTopicId(nextTopic.id);
+    setTopicTitleDraft("");
+    setTopicStarterDraft("");
+    setTopicMode("poetry_discussion");
+  };
+
+  const forwardPostToGroup = (spaceId: string, postId: string) => {
+    const post = posts.find((item) => item.id === postId);
+    if (!post) return;
+    const nextTopic: GroupTopic = {
+      id: `topic-${Date.now()}`,
+      spaceId,
+      title: `Discuss: ${shorten(post.body, 48)}`,
+      type: "post_forward",
+      starter: "Forwarding this post to invite close reading, branching, or a second version.",
+      createdBy: currentUser,
+      createdAt: nowIso(),
+      postId,
+      tags: ["#post_forward", "#second_version"],
+      unread: 0,
+      active: true,
+    };
+    const nextMessage: GroupChatMessage = {
+      id: `gm-${Date.now()}-forward`,
+      spaceId,
+      topicId: nextTopic.id,
+      author: currentUser,
+      text: "Forwarding this post here. Who wants to help imagine a second version?",
+      createdAt: nowIso(),
+      mentions: [],
+      postId,
+      reactions: 0,
+    };
+    setGroupTopics((current) => [nextTopic, ...current]);
+    setGroupMessages((current) => [...current, nextMessage]);
+    openGroupChat(spaceId, nextTopic.id);
   };
 
   const runSearch = () => {
@@ -854,6 +995,8 @@ export default function App() {
               spaceNotice={spaceNotice}
               startGroupDraft={startGroupDraft}
               joinChallenge={joinChallenge}
+              openGroupChat={openGroupChat}
+              forwardPostToGroup={forwardPostToGroup}
               fragmentAction={fragmentAction}
               openPost={openPost}
               openQuote={openQuote}
@@ -882,6 +1025,38 @@ export default function App() {
               setCreationKind={setCreationKind}
               createMode={createMode}
               setCreateMode={setCreateMode}
+            />
+          )}
+          {view === "groupChat" && (
+            <GroupChatPage
+              space={activeGroupChatSpace}
+              posts={posts}
+              groupPosts={activeGroupPosts}
+              topics={activeGroupTopics}
+              messages={activeGroupMessages}
+              activeTopicId={activeGroupTopicId}
+              setActiveTopicId={setActiveGroupTopicId}
+              chatDraft={groupChatDraft}
+              setChatDraft={setGroupChatDraft}
+              quotedMessageId={quotedGroupMessageId}
+              setQuotedMessageId={setQuotedGroupMessageId}
+              addMention={addMentionToGroupDraft}
+              sendMessage={sendGroupMessage}
+              topicTitleDraft={topicTitleDraft}
+              setTopicTitleDraft={setTopicTitleDraft}
+              topicStarterDraft={topicStarterDraft}
+              setTopicStarterDraft={setTopicStarterDraft}
+              topicMode={topicMode}
+              setTopicMode={setTopicMode}
+              topicPostId={topicPostId}
+              setTopicPostId={setTopicPostId}
+              startTopic={startGroupTopic}
+              startGroupDraft={startGroupDraft}
+              openPost={openPost}
+              navigate={navigate}
+              searchInput={searchInput}
+              setSearchInput={setSearchInput}
+              runSearch={runSearch}
             />
           )}
           {view === "activity" && (
@@ -1148,6 +1323,8 @@ function SpacesPage({
   spaceNotice,
   startGroupDraft,
   joinChallenge,
+  openGroupChat,
+  forwardPostToGroup,
   fragmentAction,
   openPost,
   openQuote,
@@ -1172,6 +1349,8 @@ function SpacesPage({
   spaceNotice: string;
   startGroupDraft: (spaceId: string, channelId?: string) => void;
   joinChallenge: (channelId: string, startMode: ChallengeStartMode) => void;
+  openGroupChat: (spaceId: string, topicId?: string) => void;
+  forwardPostToGroup: (spaceId: string, postId: string) => void;
   fragmentAction: (fragmentId: string, action: FragmentActionName) => void;
   openPost: (id: string) => void;
   openQuote: (id: string) => void;
@@ -1196,7 +1375,7 @@ function SpacesPage({
         </div>
       </div>
       {spaceNotice && <div className="mb-5 rounded-[20px] bg-[#eef0ff] px-5 py-4 text-sm font-black text-[#001eff]">{spaceNotice}</div>}
-      {tab === "Groups" && <GroupsPanel spaces={spaces} channels={channels} posts={posts} activeSpaceId={activeSpaceId} setActiveSpaceId={setActiveSpaceId} startGroupDraft={startGroupDraft} openPost={openPost} />}
+      {tab === "Groups" && <GroupsPanel spaces={spaces} channels={channels} posts={posts} activeSpaceId={activeSpaceId} setActiveSpaceId={setActiveSpaceId} startGroupDraft={startGroupDraft} openGroupChat={openGroupChat} forwardPostToGroup={forwardPostToGroup} openPost={openPost} />}
       {tab === "Challenges" && (
         <ChallengesPanel
           channels={channels.filter((channel) => channel.kind === "challenge" || channel.kind === "turn_taking")}
@@ -1220,6 +1399,8 @@ function GroupsPanel({
   activeSpaceId,
   setActiveSpaceId,
   startGroupDraft,
+  openGroupChat,
+  forwardPostToGroup,
   openPost,
 }: {
   spaces: Space[];
@@ -1228,6 +1409,8 @@ function GroupsPanel({
   activeSpaceId: string;
   setActiveSpaceId: (id: string) => void;
   startGroupDraft: (spaceId: string, channelId?: string) => void;
+  openGroupChat: (spaceId: string, topicId?: string) => void;
+  forwardPostToGroup: (spaceId: string, postId: string) => void;
   openPost: (id: string) => void;
 }) {
   const activeSpace = spaces.find((space) => space.id === activeSpaceId) ?? spaces[0];
@@ -1273,6 +1456,9 @@ function GroupsPanel({
           </div>
           <button type="button" onClick={() => startGroupDraft(activeSpace.id, relatedChannels[0]?.id)} className="rounded-full bg-[#001eff] px-6 py-3 text-left text-sm font-black text-white">
             Start from draft
+          </button>
+          <button type="button" onClick={() => openGroupChat(activeSpace.id)} className="rounded-full border-2 border-[#001eff] px-6 py-3 text-left text-sm font-black text-[#001eff]">
+            <MessageCircle size={16} className="mr-2 inline" /> Open group chat
           </button>
         </div>
 
@@ -1336,10 +1522,15 @@ function GroupsPanel({
               <p className="font-mono text-xl font-black text-[#001eff]">Recent works</p>
               <div className="mt-3 grid gap-2">
                 {relatedPosts.slice(0, 3).map((post) => (
-                  <button key={post.id} type="button" onClick={() => openPost(post.id)} className="rounded-[16px] bg-[#eef0ff] p-3 text-left">
-                    <p className="text-sm font-black text-[#001eff]">{post.mode === "turn_taking" ? "Turn-taking" : "Facilitated"} · {post.lockState.status}</p>
-                    <p className="mt-1 text-sm font-bold">{shorten(post.body, 72)}</p>
-                  </button>
+                  <div key={post.id} className="rounded-[16px] bg-[#eef0ff] p-3">
+                    <button type="button" onClick={() => openPost(post.id)} className="w-full text-left">
+                      <p className="text-sm font-black text-[#001eff]">{post.mode === "turn_taking" ? "Turn-taking" : "Facilitated"} · {post.lockState.status}</p>
+                      <p className="mt-1 text-sm font-bold">{shorten(post.body, 72)}</p>
+                    </button>
+                    <button type="button" onClick={() => forwardPostToGroup(activeSpace.id, post.id)} className="mt-3 rounded-full bg-white px-4 py-1.5 text-xs font-black text-[#001eff]">
+                      <Repeat2 size={13} className="mr-1 inline" /> Forward to chat
+                    </button>
+                  </div>
                 ))}
                 {relatedPosts.length === 0 && <p className="text-sm font-bold text-[#737783]">No works in this group yet.</p>}
               </div>
@@ -1722,6 +1913,298 @@ function CreatePage(props: {
       </button>
     </form>
   );
+}
+
+function GroupChatPage({
+  space,
+  posts,
+  groupPosts,
+  topics,
+  messages,
+  activeTopicId,
+  setActiveTopicId,
+  chatDraft,
+  setChatDraft,
+  quotedMessageId,
+  setQuotedMessageId,
+  addMention,
+  sendMessage,
+  topicTitleDraft,
+  setTopicTitleDraft,
+  topicStarterDraft,
+  setTopicStarterDraft,
+  topicMode,
+  setTopicMode,
+  topicPostId,
+  setTopicPostId,
+  startTopic,
+  startGroupDraft,
+  openPost,
+  navigate,
+  searchInput,
+  setSearchInput,
+  runSearch,
+}: {
+  space: Space;
+  posts: Post[];
+  groupPosts: Post[];
+  topics: GroupTopic[];
+  messages: GroupChatMessage[];
+  activeTopicId: string;
+  setActiveTopicId: (id: string) => void;
+  chatDraft: string;
+  setChatDraft: (value: string) => void;
+  quotedMessageId?: string;
+  setQuotedMessageId: (id: string | undefined) => void;
+  addMention: (handle: string) => void;
+  sendMessage: (event: FormEvent) => void;
+  topicTitleDraft: string;
+  setTopicTitleDraft: (value: string) => void;
+  topicStarterDraft: string;
+  setTopicStarterDraft: (value: string) => void;
+  topicMode: TopicComposerMode;
+  setTopicMode: (mode: TopicComposerMode) => void;
+  topicPostId: string;
+  setTopicPostId: (id: string) => void;
+  startTopic: (event: FormEvent) => void;
+  startGroupDraft: (spaceId: string, channelId?: string) => void;
+  openPost: (id: string) => void;
+  navigate: (view: View) => void;
+} & SearchProps) {
+  const memberAuthors = space.members
+    .map((member) => ({
+      ...member,
+      author: Object.values(authors).find((author) => author.id === member.userId),
+    }))
+    .filter((member) => member.author);
+  const messageMap = new Map(messages.map((message) => [message.id, message]));
+  const activeTopic = topics.find((topic) => topic.id === activeTopicId);
+  const visibleMessages = activeTopicId ? messages.filter((message) => message.topicId === activeTopicId) : messages;
+  const selectablePosts = groupPosts.length > 0 ? groupPosts : posts.slice(0, 6);
+  const forwardedPosts = selectablePosts.filter((post) => topics.some((topic) => topic.postId === post.id) || messages.some((message) => message.postId === post.id));
+
+  return (
+    <div>
+      <BrandBar navigate={navigate} searchInput={searchInput} setSearchInput={setSearchInput} runSearch={runSearch} />
+      <button type="button" onClick={() => navigate("spaces")} className="mb-5 flex items-center gap-4 font-mono text-[24px] font-black lg:text-[27px]">{"<"} back to groups</button>
+
+      <header className="mb-5 rounded-[28px] border-2 border-[#001eff] bg-white p-5 lg:p-6">
+        <div className="flex flex-col justify-between gap-5 lg:flex-row lg:items-start">
+          <div>
+            <p className="font-mono text-sm font-black uppercase text-[#001eff]">{space.kind.replace("_", " ")} group chat</p>
+            <h1 className="mt-2 text-[36px] font-black leading-none text-[#001eff] lg:text-[46px]">{space.name}</h1>
+            <p className="mt-3 max-w-[760px] text-base font-bold text-[#737783]">{space.description}</p>
+          </div>
+          <div className="grid grid-cols-3 gap-2 text-center sm:min-w-[360px]">
+            <MetricBlock value={String(space.members.length)} label="members" />
+            <MetricBlock value={String(topics.length)} label="topics" />
+            <MetricBlock value={String(messages.length)} label="messages" />
+          </div>
+        </div>
+      </header>
+
+      <div className="grid gap-5 xl:grid-cols-[300px_minmax(0,1fr)_310px]">
+        <aside className="grid content-start gap-4">
+          <section className="rounded-[24px] border-2 border-[#001eff] p-4">
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <p className="font-mono text-xl font-black text-[#001eff]">Topic threads</p>
+              <Pin size={18} className="text-[#001eff]" />
+            </div>
+            <button type="button" onClick={() => setActiveTopicId("")} className={`mb-2 w-full rounded-[16px] px-4 py-3 text-left text-sm font-black ${!activeTopicId ? "bg-[#001eff] text-white" : "bg-[#eef0ff] text-[#001eff]"}`}>
+              All group chat
+            </button>
+            <div className="grid gap-2">
+              {topics.map((topic) => (
+                <button key={topic.id} type="button" onClick={() => setActiveTopicId(topic.id)} className={`rounded-[16px] p-3 text-left ${activeTopicId === topic.id ? "bg-[#001eff] text-white" : "bg-[#eef0ff] text-[#001eff]"}`}>
+                  <span className="text-xs font-black uppercase opacity-80">{topicTypeLabel(topic.type)}</span>
+                  <span className="mt-1 block text-sm font-black leading-snug">{topic.title}</span>
+                  <span className="mt-2 block text-xs font-bold opacity-75">{formatDate(topic.createdAt)} · {topic.unread} unread</span>
+                </button>
+              ))}
+            </div>
+          </section>
+
+          <form onSubmit={startTopic} className="rounded-[24px] border-2 border-[#e8e0d9] p-4">
+            <p className="font-mono text-xl font-black text-[#001eff]"><PlusCircle size={18} className="mr-1 inline" /> Start topic</p>
+            <div className="mt-3 grid gap-2">
+              {topicModes.map((mode) => (
+                <button key={mode.value} type="button" onClick={() => setTopicMode(mode.value)} className={`rounded-[14px] border-2 px-3 py-2 text-left text-xs font-black ${topicMode === mode.value ? "border-[#001eff] bg-[#eef0ff] text-[#001eff]" : "border-[#e8e0d9] text-[#3b3d45]"}`}>
+                  {mode.label}
+                  <span className="mt-1 block font-bold text-[#737783]">{mode.hint}</span>
+                </button>
+              ))}
+            </div>
+            <input value={topicTitleDraft} onChange={(event) => setTopicTitleDraft(event.target.value)} className="mt-3 h-11 w-full rounded-[14px] border-2 border-[#e8e0d9] px-3 text-sm font-bold outline-none focus:border-[#001eff]" placeholder="topic title" />
+            {(topicMode === "post_forward" || topicMode === "co_creation_call") && (
+              <select value={topicPostId} onChange={(event) => setTopicPostId(event.target.value)} className="mt-3 h-11 w-full rounded-[14px] border-2 border-[#e8e0d9] bg-white px-3 text-sm font-bold outline-none focus:border-[#001eff]">
+                {selectablePosts.map((post) => <option key={post.id} value={post.id}>{shorten(post.body, 54)}</option>)}
+              </select>
+            )}
+            <textarea value={topicStarterDraft} onChange={(event) => setTopicStarterDraft(event.target.value)} className="mt-3 min-h-[92px] w-full resize-y rounded-[14px] border-2 border-[#e8e0d9] p-3 text-sm font-bold outline-none focus:border-[#001eff]" placeholder="first message, prompt, or call for co-creation" />
+            <button className="mt-3 w-full rounded-full bg-[#001eff] px-5 py-2.5 text-sm font-black text-white">
+              Create topic
+            </button>
+          </form>
+        </aside>
+
+        <section className="min-w-0 rounded-[28px] border-2 border-[#001eff] bg-white p-4 lg:p-5">
+          <div className="mb-4 flex flex-col justify-between gap-4 border-b-2 border-[#e8e0d9] pb-4 lg:flex-row lg:items-center">
+            <div>
+              <p className="font-mono text-sm font-black uppercase text-[#001eff]">{activeTopic ? topicTypeLabel(activeTopic.type) : "Whole group"}</p>
+              <h2 className="text-2xl font-black leading-tight">{activeTopic?.title ?? "All group chat"}</h2>
+              <p className="mt-1 text-sm font-bold text-[#737783]">{activeTopic?.starter ?? "A shared room for quick feedback, coordination, and casual conversation."}</p>
+            </div>
+            {activeTopic && (
+              <button type="button" onClick={() => startGroupDraft(space.id)} className="rounded-full border-2 border-[#ff4b4f] px-5 py-2 text-sm font-black text-[#ff4b4f]">
+                <Megaphone size={15} className="mr-1 inline" /> Start co-writing draft
+              </button>
+            )}
+          </div>
+
+          <div className="grid max-h-[620px] gap-3 overflow-y-auto pr-1">
+            {visibleMessages.map((message) => (
+              <GroupMessageRow
+                key={message.id}
+                message={message}
+                quote={message.quoteMessageId ? messageMap.get(message.quoteMessageId) : undefined}
+                post={message.postId ? posts.find((post) => post.id === message.postId) : undefined}
+                setQuotedMessageId={setQuotedMessageId}
+                openPost={openPost}
+              />
+            ))}
+            {visibleMessages.length === 0 && (
+              <div className="rounded-[22px] bg-[#eef0ff] p-6 text-center font-black text-[#001eff]">No messages in this topic yet.</div>
+            )}
+          </div>
+
+          <form onSubmit={sendMessage} className="mt-4 rounded-[22px] bg-[#eef0ff] p-3">
+            {quotedMessageId && (
+              <div className="mb-3 flex items-start justify-between gap-3 rounded-[16px] bg-white p-3 text-sm font-bold">
+                <span><Reply size={14} className="mr-1 inline text-[#001eff]" /> Replying to {messageMap.get(quotedMessageId)?.author.name}: {shorten(messageMap.get(quotedMessageId)?.text ?? "", 78)}</span>
+                <button type="button" onClick={() => setQuotedMessageId(undefined)} className="font-black text-[#ff4b4f]">Clear</button>
+              </div>
+            )}
+            <div className="mb-3 flex gap-2 overflow-x-auto">
+              {memberAuthors.map((member) => member.author && (
+                <button key={member.userId} type="button" onClick={() => addMention(member.author!.handle)} className="whitespace-nowrap rounded-full bg-white px-3 py-1.5 text-xs font-black text-[#001eff]">
+                  <AtSign size={13} className="mr-1 inline" /> {member.author.handle}
+                </button>
+              ))}
+            </div>
+            <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_120px]">
+              <textarea value={chatDraft} onChange={(event) => setChatDraft(event.target.value)} className="min-h-[72px] resize-y rounded-[18px] border-2 border-white bg-white p-3 text-sm font-bold outline-none focus:border-[#001eff]" placeholder="Message the group, quote a reply, or mention @someone..." />
+              <button className="rounded-[18px] bg-[#001eff] px-5 py-3 font-black text-white">
+                <Send size={16} className="mr-1 inline" /> Send
+              </button>
+            </div>
+          </form>
+        </section>
+
+        <aside className="grid content-start gap-4">
+          <section className="rounded-[24px] border-2 border-[#001eff] p-4">
+            <p className="font-mono text-xl font-black text-[#001eff]"><Users size={18} className="mr-1 inline" /> Members</p>
+            <div className="mt-3 grid gap-3">
+              {memberAuthors.map((member) => member.author && (
+                <div key={member.userId} className="flex items-center gap-3 rounded-[16px] bg-[#eef0ff] p-3">
+                  <Avatar author={member.author} muted />
+                  <div className="min-w-0">
+                    <p className="truncate font-black">{member.author.name}</p>
+                    <p className="text-xs font-bold text-[#737783]">{member.role} · {member.badges.join(", ")}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </section>
+
+          <section className="rounded-[24px] border-2 border-[#e8e0d9] p-4">
+            <p className="font-mono text-xl font-black text-[#001eff]">Forwarded posts</p>
+            <div className="mt-3 grid gap-3">
+              {(forwardedPosts.length ? forwardedPosts : groupPosts.slice(0, 3)).map((post) => (
+                <button key={post.id} type="button" onClick={() => openPost(post.id)} className="rounded-[16px] bg-[#eef0ff] p-3 text-left">
+                  <p className="text-sm font-black text-[#001eff]">{post.mode === "turn_taking" ? "Relay" : "Draft"} · {post.stage}</p>
+                  <p className="mt-1 text-sm font-bold">{shorten(post.body, 70)}</p>
+                </button>
+              ))}
+              {groupPosts.length === 0 && <p className="text-sm font-bold text-[#737783]">No group posts yet.</p>}
+            </div>
+          </section>
+        </aside>
+      </div>
+    </div>
+  );
+}
+
+function GroupMessageRow({
+  message,
+  quote,
+  post,
+  setQuotedMessageId,
+  openPost,
+}: {
+  message: GroupChatMessage;
+  quote?: GroupChatMessage;
+  post?: Post;
+  setQuotedMessageId: (id: string | undefined) => void;
+  openPost: (id: string) => void;
+}) {
+  return (
+    <article className={`rounded-[22px] border-2 p-4 ${message.author.id === currentUser.id ? "border-[#001eff] bg-[#f7f8ff]" : "border-[#e8e0d9] bg-white"}`}>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="flex min-w-0 items-center gap-3">
+          <Avatar author={message.author} muted={message.author.id !== currentUser.id} />
+          <div className="min-w-0">
+            <p className="truncate font-black">{message.author.name}</p>
+            <p className="text-xs font-bold text-[#737783]">{formatDate(message.createdAt)}</p>
+          </div>
+        </div>
+        <button type="button" onClick={() => setQuotedMessageId(message.id)} className="rounded-full bg-[#eef0ff] px-3 py-1 text-xs font-black text-[#001eff]">
+          <Reply size={13} className="mr-1 inline" /> Quote
+        </button>
+      </div>
+      {quote && (
+        <div className="mt-3 rounded-[16px] border-l-4 border-[#001eff] bg-[#eef0ff] p-3 text-sm font-bold text-[#3b3d45]">
+          {quote.author.name}: {shorten(quote.text, 90)}
+        </div>
+      )}
+      <div className="mt-3 text-[17px] font-bold leading-relaxed">
+        <HighlightedMentions text={message.text} />
+      </div>
+      {post && (
+        <button type="button" onClick={() => openPost(post.id)} className="mt-4 w-full rounded-[18px] border-2 border-[#001eff] bg-white p-4 text-left">
+          <p className="text-xs font-black uppercase text-[#001eff]">Forwarded post</p>
+          <p className="mt-1 font-black">{shorten(post.body, 110)}</p>
+          <p className="mt-2 text-xs font-bold text-[#737783]">{post.author.handle} · {post.mode.replace("_", " ")} · {post.tags.slice(0, 3).join(" ")}</p>
+        </button>
+      )}
+      <div className="mt-3 flex flex-wrap gap-2 text-xs font-black text-[#737783]">
+        <span>{message.reactions} reactions</span>
+        {message.mentions.map((mention) => <span key={mention} className="text-[#001eff]">{mention}</span>)}
+      </div>
+    </article>
+  );
+}
+
+function HighlightedMentions({ text }: { text: string }) {
+  const parts = text.split(/(@[A-Za-z0-9_.-]+)/g);
+  return (
+    <>
+      {parts.map((part, index) => part.startsWith("@") ? (
+        <span key={`${part}-${index}`} className="rounded-full bg-[#eef0ff] px-1.5 py-0.5 font-black text-[#001eff]">{part}</span>
+      ) : (
+        <span key={`${part}-${index}`}>{part}</span>
+      ))}
+    </>
+  );
+}
+
+function topicTypeLabel(type: GroupTopicType) {
+  const labels: Record<GroupTopicType, string> = {
+    poetry_discussion: "Poetry topic",
+    free_chat: "Free chat",
+    post_forward: "Forwarded post",
+    co_creation_call: "Co-creation call",
+  };
+  return labels[type];
 }
 
 function ModeButton({ active, title, description, onClick }: { active: boolean; title: string; description: string; onClick: () => void }) {

@@ -1,6 +1,6 @@
 import type { FormEvent, ReactNode } from "react";
 
-export type View = "home" | "spaces" | "create" | "activity" | "profile" | "detail" | "quote" | "history";
+export type View = "home" | "spaces" | "groupChat" | "create" | "activity" | "profile" | "detail" | "quote" | "history";
 export type Stage = "Started from" | "Poem so far" | "Final Version";
 export type SuggestionGroup = "Possible lines" | "Reader themes" | "Tone feedback" | "Revision hints";
 export type CollaborationMode = "facilitated" | "turn_taking";
@@ -142,6 +142,35 @@ export type Channel = {
   visibility: "group" | "public";
   status: "open" | "reviewing" | "locked" | "archived";
   participants: number;
+};
+
+export type GroupTopicType = "poetry_discussion" | "free_chat" | "post_forward" | "co_creation_call";
+
+export type GroupTopic = {
+  id: string;
+  spaceId: string;
+  title: string;
+  type: GroupTopicType;
+  starter: string;
+  createdBy: Author;
+  createdAt: string;
+  postId?: string;
+  tags: string[];
+  unread: number;
+  active: boolean;
+};
+
+export type GroupChatMessage = {
+  id: string;
+  spaceId: string;
+  topicId?: string;
+  author: Author;
+  text: string;
+  createdAt: string;
+  mentions: string[];
+  quoteMessageId?: string;
+  postId?: string;
+  reactions: number;
 };
 
 export type Fragment = {
