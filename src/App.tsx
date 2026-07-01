@@ -13,6 +13,7 @@ import {
   X,
 } from "lucide-react";
 import { FormEvent, ReactNode, useMemo, useRef, useState } from "react";
+import lineSpaceLogo from "./assets/linespace-ls-logo.jpg";
 
 type View = "home" | "streams" | "create" | "activity" | "profile" | "detail" | "quote" | "history";
 type Stage = "Started from" | "Poem so far" | "Final Version";
@@ -22,6 +23,12 @@ type Author = {
   name: string;
   handle: string;
   avatar: string;
+};
+
+type CommentImpact = {
+  accepted: number;
+  likes: number;
+  comments: number;
 };
 
 type Post = {
@@ -302,7 +309,7 @@ const postsSeed: Post[] = [
     showHistory: true,
     invited: [],
     likes: 96,
-    comments: 3,
+    comments: 4,
     quotes: 4,
     saves: 8,
     liked: false,
@@ -439,7 +446,7 @@ const postsSeed: Post[] = [
     showHistory: true,
     invited: [],
     likes: 117,
-    comments: 3,
+    comments: 4,
     quotes: 3,
     saves: 10,
     liked: false,
@@ -473,6 +480,8 @@ const commentsSeed: Comment[] = [
   { id: "c21", postId: "p12", author: alex, text: "The happiest photo kept a shadow in the corner.", kind: "poetic continuation", likes: 39, replies: 13, quotes: 5, liked: false },
   { id: "c22", postId: "p12", author: maya, text: "Maybe use brightness as a way to arrange the whole poem.", kind: "revision suggestion", likes: 21, replies: 4, quotes: 2, liked: false },
   { id: "c23", postId: "p12", author: noor, text: "It feels like grief being sorted by an app that does not understand grief.", kind: "emotional feedback", likes: 28, replies: 7, quotes: 2, liked: false },
+  { id: "c24", postId: "p7", author: lili, text: "The old password remembered the room before I did.", kind: "poetic continuation", likes: 52, replies: 9, quotes: 6, liked: true },
+  { id: "c25", postId: "p12", author: lili, text: "Maybe let the bright parts stay suspicious instead of becoming hopeful too soon.", kind: "revision suggestion", likes: 34, replies: 5, quotes: 3, liked: false },
 ];
 
 const suggestionsSeed: Suggestion[] = [
@@ -483,7 +492,7 @@ const suggestionsSeed: Suggestion[] = [
   { id: "s5", commentId: "c5", group: "Revision hints", text: "Make the speaker sound colder and less sentimental.", status: "open" },
   { id: "s6", commentId: "c7", group: "Possible lines", text: "I folded the sentence back into my drafts before morning.", status: "open" },
   { id: "s7", commentId: "c8", group: "Reader themes", text: "private, unsent feeling and self-archive", status: "open" },
-  { id: "s8", commentId: "c9", group: "Possible lines", text: "It stopped between floors and asked me to choose a childhood.", status: "open" },
+  { id: "s8", commentId: "c9", group: "Possible lines", text: "It stopped between floors and asked me to choose a childhood.", status: "added" },
   { id: "s9", commentId: "c10", group: "Tone feedback", text: "Start playful, then let the loneliness arrive quietly.", status: "open" },
   { id: "s10", commentId: "c11", group: "Revision hints", text: "Make the building feel alive, like it remembers residents.", status: "open" },
   { id: "s11", commentId: "c12", group: "Reader themes", text: "domestic memory and automated care", status: "open" },
@@ -494,6 +503,8 @@ const suggestionsSeed: Suggestion[] = [
   { id: "s16", commentId: "c21", group: "Possible lines", text: "The happiest photo kept a shadow in the corner.", status: "open" },
   { id: "s17", commentId: "c22", group: "Revision hints", text: "Use brightness as the structure for the poem.", status: "open" },
   { id: "s18", commentId: "c23", group: "Tone feedback", text: "Grief sorted by an app that does not understand grief.", status: "open" },
+  { id: "s19", commentId: "c24", group: "Possible lines", text: "The old password remembered the room before I did.", status: "added" },
+  { id: "s20", commentId: "c25", group: "Revision hints", text: "Let the bright parts stay suspicious, not hopeful too soon.", status: "open" },
 ];
 
 const navItems: { label: string; view: View }[] = [
@@ -524,6 +535,23 @@ function classifyReaderResponse(text: string): { kind: string; group?: Suggestio
 function countOpenSuggestions(comments: Comment[], suggestions: Suggestion[]) {
   const ids = new Set(comments.map((comment) => comment.id));
   return suggestions.filter((item) => ids.has(item.commentId) && (item.status === "open" || item.status === "editing")).length;
+}
+
+function getCommentImpact(author: Author, comments: Comment[], suggestions: Suggestion[]): CommentImpact {
+  const authoredComments = comments.filter((comment) => comment.author.handle === author.handle);
+  const commentIds = new Set(authoredComments.map((comment) => comment.id));
+  return {
+    accepted: suggestions.filter((suggestion) => commentIds.has(suggestion.commentId) && suggestion.status === "added").length,
+    likes: authoredComments.reduce((sum, comment) => sum + comment.likes, 0),
+    comments: authoredComments.length,
+  };
+}
+
+function impactBadge(comment: Comment, suggestions: Suggestion[]) {
+  const accepted = suggestions.some((suggestion) => suggestion.commentId === comment.id && suggestion.status === "added");
+  if (accepted) return "✓";
+  if (comment.likes >= 40) return "★";
+  return undefined;
 }
 
 export default function App() {
@@ -798,6 +826,7 @@ export default function App() {
               tab={profileTab}
               setTab={setProfileTab}
               comments={comments}
+              suggestions={suggestions}
               suggestionsByComment={suggestionByComment}
               commentDraft={commentDraft}
               activeSuggestionCount={0}
@@ -896,10 +925,13 @@ function BrandBar({
   };
 
   return (
-    <header className="mb-10 grid grid-cols-[190px_minmax(0,1fr)_52px_52px] items-center gap-7">
-      <button onClick={() => navigate("home")} className="text-left">
-        <h1 className="font-mono text-[36px] font-black leading-none tracking-tight text-[#001eff]">LINESPACE</h1>
-        <p className="mt-1 text-sm font-black">write together, line by line</p>
+    <header className="mb-10 grid grid-cols-[280px_minmax(0,1fr)_52px_52px] items-center gap-7">
+      <button onClick={() => navigate("home")} className="flex items-center gap-3 text-left">
+        <LineSpaceLogo />
+        <span>
+          <h1 className="font-mono text-[34px] font-black leading-none tracking-tight text-[#001eff]">LINESPACE</h1>
+          <p className="mt-1 text-sm font-black">write together, line by line</p>
+        </span>
       </button>
       {showSearch ? (
         <label className="relative block">
@@ -925,6 +957,14 @@ function BrandBar({
       </button>
       <button onClick={() => navigate("profile")} className="grid h-10 w-10 place-items-center rounded-full bg-[#001eff] font-mono text-sm text-white">Lili</button>
     </header>
+  );
+}
+
+function LineSpaceLogo() {
+  return (
+    <span className="block h-[58px] w-[66px] shrink-0 overflow-hidden bg-white" aria-hidden="true">
+      <img src={lineSpaceLogo} alt="" className="h-full w-full object-contain" />
+    </span>
   );
 }
 
@@ -1472,6 +1512,7 @@ function ProfilePage({
   tab,
   setTab,
   comments,
+  suggestions,
   suggestionsByComment,
   commentDraft,
   activeSuggestionCount,
@@ -1496,6 +1537,7 @@ function ProfilePage({
   tab: string;
   setTab: (tab: string) => void;
   comments: Comment[];
+  suggestions: Suggestion[];
   suggestionsByComment: Map<string, Suggestion[]>;
   commentDraft: string;
   activeSuggestionCount: number;
@@ -1522,43 +1564,101 @@ function ProfilePage({
         : tab === "Quotes"
           ? posts.filter((post) => post.tags.includes("#quote_version"))
           : posts.filter((post) => !post.tags.includes("#quote_version"));
-  const focusPost = posts.find((post) => post.id === "p5") ?? posts[0];
-  const focusComments = comments.filter((comment) => comment.postId === focusPost.id);
-  const focusSuggestionCount = countOpenSuggestions(focusComments, Array.from(suggestionsByComment.values()).flat());
+  const profileImpact = getCommentImpact(lili, comments, suggestions);
+  const myComments = comments.filter((comment) => {
+    const targetPost = posts.find((post) => post.id === comment.postId);
+    return comment.author.handle === lili.handle && targetPost?.author.handle !== lili.handle;
+  });
   return (
     <div>
       <BrandBar navigate={navigate} searchInput={searchInput} setSearchInput={setSearchInput} runSearch={runSearch} />
-      <ProfileHeader />
+      <ProfileHeader impact={profileImpact} />
       <div className="mb-12 flex gap-7">
         {tabs.map((item) => (
           <button key={item} onClick={() => setTab(item)} className={`h-[46px] min-w-[156px] rounded-full px-7 text-[22px] font-black text-white ${tab === item ? "bg-[#001eff]" : "bg-[#aeb2d3]"}`}>{item}</button>
         ))}
       </div>
       {tab === "Comments" ? (
-        <ProfileCommentsView
-          post={focusPost}
-          comments={focusComments}
-          suggestionsByComment={suggestionsByComment}
-          commentDraft={commentDraft}
-          activeSuggestionCount={focusSuggestionCount}
-          setCommentDraft={setCommentDraft}
-          addComment={addComment}
+        <MyCommentsView
+          comments={myComments}
+          posts={posts}
+          suggestions={suggestions}
           likeComment={likeComment}
-          addSuggestionToPoem={addSuggestionToPoem}
-          editSuggestion={editSuggestion}
-          updateSuggestion={updateSuggestion}
-          ignoreSuggestion={ignoreSuggestion}
-          saveAuthorVersion={saveAuthorVersion}
-          setTab={setTab}
-          openQuote={openQuote}
-          toggleLike={toggleLike}
-          toggleSave={toggleSave}
-          navigate={navigate}
+          openPost={openPost}
         />
       ) : (
         <MasonryGrid posts={filtered.slice(0, 8)} openPost={openPost} openQuote={openQuote} toggleLike={toggleLike} toggleSave={toggleSave} compact />
       )}
     </div>
+  );
+}
+
+function MyCommentsView({
+  comments,
+  posts,
+  suggestions,
+  likeComment,
+  openPost,
+}: {
+  comments: Comment[];
+  posts: Post[];
+  suggestions: Suggestion[];
+  likeComment: (id: string) => void;
+  openPost: (id: string) => void;
+}) {
+  return (
+    <section className="max-w-[980px]">
+      <div className="mb-6 flex items-end justify-between gap-6">
+        <div>
+          <h2 className="font-mono text-[32px] font-black text-[#001eff]">Comments I left</h2>
+          <p className="mt-1 text-lg font-bold text-[#777]">Lines, thoughts, and suggestions Lili added to other people's poems.</p>
+        </div>
+        <div className="rounded-full bg-[#eef0ff] px-5 py-2 text-sm font-black text-[#001eff]">
+          {comments.length} comments
+        </div>
+      </div>
+      <div className="grid gap-5">
+        {comments.map((comment) => {
+          const targetPost = posts.find((post) => post.id === comment.postId);
+          const accepted = suggestions.some((suggestion) => suggestion.commentId === comment.id && suggestion.status === "added");
+          const suggested = suggestions.find((suggestion) => suggestion.commentId === comment.id);
+          return (
+            <article key={comment.id} className="rounded-[28px] border-2 border-[#001eff] p-5">
+              <div className="flex items-start gap-4">
+                <Avatar author={comment.author} badge={impactBadge(comment, suggestions)} />
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center gap-3">
+                    <p className="text-xl font-black">{comment.author.name}</p>
+                    <span className="text-lg font-bold text-[#888]">{comment.author.handle}</span>
+                    <span className="rounded-full bg-[#eef0ff] px-3 py-1 text-xs font-black text-[#001eff]">{comment.kind}</span>
+                    {accepted && <span className="rounded-full bg-[#001eff] px-3 py-1 text-xs font-black text-white">accepted into poem</span>}
+                    {!accepted && comment.likes >= 40 && <span className="rounded-full bg-[#fff5cc] px-3 py-1 text-xs font-black text-[#7a5b00]">highly liked</span>}
+                  </div>
+                  <p className="mt-3 text-[22px] font-bold leading-snug">{comment.text}</p>
+                  {targetPost && (
+                    <button onClick={() => openPost(targetPost.id)} className="mt-4 w-full rounded-[20px] bg-[#f7f8ff] p-4 text-left transition hover:bg-[#eef0ff]">
+                      <p className="text-sm font-black text-[#001eff]">On {targetPost.author.name}'s post</p>
+                      <p className="mt-1 line-clamp-2 text-lg font-black">{targetPost.body}</p>
+                      <p className="mt-2 text-sm font-bold text-[#777]">{targetPost.tags.join(" ")}</p>
+                    </button>
+                  )}
+                  {suggested && (
+                    <p className="mt-3 rounded-2xl border border-[#ff8a8a] bg-[#fff5f5] px-4 py-3 text-sm font-bold">
+                      <span className="font-black text-[#ff4b4f]">AI tag:</span> {suggested.group}
+                    </p>
+                  )}
+                  <div className="mt-4 flex flex-wrap gap-3">
+                    <Metric icon={<Heart size={18} />} value={comment.likes} onClick={() => likeComment(comment.id)} active={comment.liked} />
+                    <span className="flex h-[34px] items-center justify-center gap-1 rounded-full bg-[#bdbdbd] px-3 font-black text-white"><MessageCircle size={18} />{comment.replies}</span>
+                    <span className="flex h-[34px] items-center justify-center gap-1 rounded-full bg-[#bdbdbd] px-3 font-black text-white"><Quote size={18} />{comment.quotes}</span>
+                  </div>
+                </div>
+              </div>
+            </article>
+          );
+        })}
+      </div>
+    </section>
   );
 }
 
@@ -1659,14 +1759,26 @@ function ProfileCommentsView(props: {
   );
 }
 
-function ProfileHeader() {
+function ProfileHeader({ impact }: { impact: CommentImpact }) {
   return (
-    <header className="mb-12 grid grid-cols-[380px_1fr] items-center">
+    <header className="mb-12 grid grid-cols-[520px_1fr] items-center">
       <div className="flex items-center gap-6">
-        <div className="grid h-[68px] w-[68px] place-items-center rounded-full bg-[#001eff] text-[26px] text-white">Lili</div>
+        <div className="relative grid h-[68px] w-[68px] place-items-center rounded-full bg-[#001eff] text-[26px] text-white">
+          Lili
+          {impact.accepted > 0 && (
+            <span className="absolute -right-2 -top-2 grid h-7 min-w-7 place-items-center rounded-full border-2 border-white bg-[#ff4b4f] px-1 text-xs font-black text-white">
+              {impact.accepted}
+            </span>
+          )}
+        </div>
         <div>
           <h1 className="font-mono text-[28px] font-black">Lili lee</h1>
           <p className="text-[22px] font-bold text-[#999]">Just do it.</p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <span className="rounded-full bg-[#001eff] px-3 py-1 text-xs font-black text-white">{impact.accepted} accepted comments</span>
+            <span className="rounded-full bg-[#eef0ff] px-3 py-1 text-xs font-black text-[#001eff]">{impact.likes} comment likes</span>
+            <span className="rounded-full border border-[#001eff] px-3 py-1 text-xs font-black text-[#001eff]">{impact.comments} comments left</span>
+          </div>
         </div>
       </div>
       <div className="grid grid-cols-[1fr_1px_1fr_1px_1fr] items-center text-center">
@@ -2181,8 +2293,17 @@ function AISuggestion({ suggestion, addSuggestionToPoem, editSuggestion, updateS
   );
 }
 
-function Avatar({ author, muted = false }: { author: Author; muted?: boolean }) {
-  return <span className={`grid h-10 w-10 place-items-center rounded-full ${muted ? "bg-[#969dff]" : "bg-[#001eff]"} text-white`}>{author.avatar}</span>;
+function Avatar({ author, muted = false, badge }: { author: Author; muted?: boolean; badge?: string | number }) {
+  return (
+    <span className="relative inline-flex h-10 w-10 shrink-0">
+      <span className={`grid h-10 w-10 place-items-center rounded-full ${muted ? "bg-[#969dff]" : "bg-[#001eff]"} text-white`}>{author.avatar}</span>
+      {badge && (
+        <span className="absolute -right-1.5 -top-1.5 grid h-5 min-w-5 place-items-center rounded-full border-2 border-white bg-[#ff4b4f] px-1 text-[10px] font-black leading-none text-white">
+          {badge}
+        </span>
+      )}
+    </span>
+  );
 }
 
 function ProfileStat({ value, label }: { value: string; label: string }) {
