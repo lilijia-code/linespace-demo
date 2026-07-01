@@ -6,6 +6,63 @@ export type SuggestionGroup = "Possible lines" | "Reader themes" | "Tone feedbac
 export type CollaborationMode = "facilitated" | "turn_taking";
 export type WorkKind = "fragment" | "draft" | "thread" | "final";
 export type CreationKind = "Private fragment" | "Feedback-supported draft" | "Group post" | "Challenge response" | "Turn-taking thread" | "Final version";
+export type VisibilityMode = "public" | "private" | "group" | "include_people" | "exclude_people";
+export type AttributionMode = "named" | "anonymous" | "pen_name";
+export type DesignMode = "free_studio" | "template";
+export type CanvasSize = "postcard" | "square" | "story" | "a4" | "chapbook";
+
+export type PublicationDesignStyle = {
+  fontFamily: "serif" | "sans" | "mono" | "hand";
+  fontSize: number;
+  lineHeight: number;
+  textColor: string;
+  accentColor: string;
+  background: "paper" | "blueprint" | "notebook" | "collage" | "dark" | "rose";
+  paperTone: string;
+  align: "left" | "center" | "right";
+  padding: number;
+  borderStyle: "none" | "thin" | "stamp" | "tape";
+  sticker: "none" | "moon" | "star" | "tape" | "flower" | "clip";
+  stamp: "none" | "draft" | "locked" | "collective" | "fragment";
+  showCredits: boolean;
+  showTags: boolean;
+};
+
+export type DesignTemplate = {
+  id: string;
+  name: string;
+  description: string;
+  bestFor: "fragment" | "draft" | "final" | "turn_taking";
+  canvasSize: CanvasSize;
+  previewTheme: "quiet" | "notebook" | "journal" | "collage" | "collective" | "fragment";
+  defaultStyle: PublicationDesignStyle;
+};
+
+export type PublicationDesign = {
+  id: string;
+  workId?: string;
+  title: string;
+  poemText: string;
+  authorName: string;
+  contributorNames: string[];
+  tags: string[];
+  mode: DesignMode;
+  templateId?: string;
+  canvasSize: CanvasSize;
+  style: PublicationDesignStyle;
+  locked: boolean;
+  lockedAt?: string;
+  updatedAt: string;
+};
+
+export type ExportRecord = {
+  id: string;
+  designId: string;
+  workId?: string;
+  type: "jpg" | "pdf";
+  filename: string;
+  createdAt: string;
+};
 
 export type Author = {
   id: string;
@@ -45,6 +102,9 @@ export type Post = {
   authorIds: string[];
   spaceId?: string;
   channelId?: string;
+  visibilityGroupId?: string;
+  visibleUserIds?: string[];
+  hiddenUserIds?: string[];
   sourceFragmentId?: string;
   sourceWorkId?: string;
   stage: Stage;
@@ -72,6 +132,11 @@ export type Post = {
   imagePreset?: "city" | "moon" | "roses" | "stars";
   feedbackContract: FeedbackContract;
   attributionPolicy: AttributionPolicy;
+  attributionName?: string;
+  coAuthorIds?: string[];
+  anonymous?: boolean;
+  publicationDesignId?: string;
+  exportRecordIds?: string[];
   lockState: LockState;
   currentVersionId: string;
   turnQueue?: string[];
@@ -188,6 +253,7 @@ export type Fragment = {
   allowInvite: boolean;
   allowRemix: boolean;
   invitedBy: string[];
+  invitedUserIds?: string[];
   activeChatCount: number;
   activeThreadCount: number;
   branchCount: number;
@@ -222,6 +288,9 @@ export type VersionEvent = {
     | "line_reordered"
     | "version_locked"
     | "published"
+    | "design_saved"
+    | "design_locked"
+    | "jpg_exported"
     | "pdf_exported"
     | "fragment_saved"
     | "branch_created";
@@ -237,12 +306,20 @@ export type SearchProps = {
 
 export type CreateSettings = {
   publicPost: boolean;
+  visibilityMode: VisibilityMode;
+  selectedGroupId?: string;
+  visibleUserIds: string[];
+  hiddenUserIds: string[];
   allowComments: boolean;
+  allowForward: boolean;
   allowReplies: boolean;
   allowQuote: boolean;
   allowBuild: boolean;
   allowLike: boolean;
   showHistory: boolean;
+  attributionMode: AttributionMode;
+  penName: string;
+  coAuthorIds: string[];
 };
 
 export type ActionButtonProps = {

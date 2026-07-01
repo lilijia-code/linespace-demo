@@ -33,6 +33,7 @@ import {
   helperAttribution,
   poemLinesByPostSeed,
   postsSeed,
+  publicationTemplatesSeed,
   spacesSeed,
   suggestionsSeed,
   turnTakingContract,
@@ -41,13 +42,17 @@ import {
 import type {
   ActionButtonProps,
   Author,
+  CanvasSize,
   Channel,
   CollaborationMode,
   Comment,
   Contribution,
   CreateSettings,
   CreationKind,
+  DesignMode,
+  DesignTemplate,
   EditablePoemLine,
+  ExportRecord,
   FeedbackContract,
   Fragment,
   GroupChatMessage,
@@ -55,10 +60,14 @@ import type {
   GroupTopicType,
   PoemLine,
   Post,
+  PublicationDesign,
+  PublicationDesignStyle,
   SearchProps,
   Space,
   Suggestion,
   SuggestionGroup,
+  AttributionMode,
+  VisibilityMode,
   VersionEvent,
   View,
 } from "./types";
@@ -102,6 +111,9 @@ const eventCopy: Record<VersionEvent["type"], string> = {
   line_reordered: "Lines reordered",
   version_locked: "Version locked",
   published: "Published",
+  design_saved: "Design draft saved",
+  design_locked: "Final design locked",
+  jpg_exported: "JPG exported",
   pdf_exported: "PDF exported",
   fragment_saved: "Fragment saved",
   branch_created: "Branch created",
@@ -146,6 +158,372 @@ function extractMentions(text: string) {
   return Array.from(new Set(text.match(/@[A-Za-z0-9_.-]+/g) ?? []));
 }
 
+const canvasSizeMeta: Record<CanvasSize, { label: string; width: number; height: number }> = {
+  postcard: { label: "Postcard", width: 1200, height: 800 },
+  square: { label: "Social card", width: 1000, height: 1000 },
+  story: { label: "Story", width: 900, height: 1600 },
+  a4: { label: "Broadside", width: 1240, height: 1754 },
+  chapbook: { label: "Chapbook page", width: 900, height: 1200 },
+};
+
+const fontStacks: Record<PublicationDesignStyle["fontFamily"], string> = {
+  serif: "Georgia, 'Times New Roman', serif",
+  sans: "Inter, Arial, sans-serif",
+  mono: "'Courier New', monospace",
+  hand: "'Comic Sans MS', 'Segoe Print', cursive",
+};
+
+function makePublicationDesign(params: {
+  workId?: string;
+  poemText: string;
+  authorName: string;
+  contributorNames: string[];
+  tags: string[];
+  template?: DesignTemplate;
+  initial?: PublicationDesign;
+}): PublicationDesign {
+  const { workId, poemText, authorName, contributorNames, tags, template, initial } = params;
+  const activeTemplate = template ?? publicationTemplatesSeed[0];
+  return {
+    id: initial?.id ?? `design-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+    workId,
+    title: initial?.title ?? shorten(poemText.replace(/\s+/g, " "), 52),
+    poemText,
+    authorName,
+    contributorNames,
+    tags,
+    mode: initial?.mode ?? "template",
+    templateId: initial?.templateId ?? activeTemplate.id,
+    canvasSize: initial?.canvasSize ?? activeTemplate.canvasSize,
+    style: initial?.style ?? { ...activeTemplate.defaultStyle },
+    locked: initial?.locked ?? false,
+    lockedAt: initial?.lockedAt,
+    updatedAt: nowIso(),
+  };
+}
+
+function initialPublicationDesigns() {
+  const finalPosts = postsSeed.filter((post) => post.stage === "Final Version" || post.lockState.status === "locked");
+  return finalPosts.map((post, index): PublicationDesign => {
+    const template = publicationTemplatesSeed.find((item) => item.id === (post.id === "p6" ? "template-little-journal-page" : "template-quiet-postcard")) ?? publicationTemplatesSeed[index % publicationTemplatesSeed.length];
+    return {
+      id: `design-${post.id}`,
+      workId: post.id,
+      title: shorten(post.body, 52),
+      poemText: post.lines.join("\n"),
+      authorName: post.attributionName ?? post.author.name,
+      contributorNames: post.authorIds
+        .map((id) => Object.values(authors).find((author) => author.id === id)?.name)
+        .filter((name): name is string => Boolean(name)),
+      tags: post.tags,
+      mode: "template",
+      templateId: template.id,
+      canvasSize: template.canvasSize,
+      style: { ...template.defaultStyle },
+      locked: true,
+      lockedAt: post.lockState.lockedAt,
+      updatedAt: post.lockState.lockedAt ?? "2026-07-01T09:30:00.000Z",
+    };
+  });
+}
+
+function wrapCanvasText(context: CanvasRenderingContext2D, text: string, maxWidth: number) {
+  const wrapped: string[] = [];
+  text.split(/\n+/).forEach((rawLine) => {
+    const words = rawLine.trim().split(/\s+/).filter(Boolean);
+    if (!words.length) {
+      wrapped.push("");
+      return;
+    }
+    let line = words[0];
+    words.slice(1).forEach((word) => {
+      const attempt = `${line} ${word}`;
+      if (context.measureText(attempt).width <= maxWidth) {
+        line = attempt;
+      } else {
+        wrapped.push(line);
+        line = word;
+      }
+    });
+    wrapped.push(line);
+  });
+  return wrapped;
+}
+
+function drawBackground(context: CanvasRenderingContext2D, design: PublicationDesign, width: number, height: number) {
+  const { style } = design;
+  context.fillStyle = style.paperTone;
+  context.fillRect(0, 0, width, height);
+  if (style.background === "blueprint") {
+    context.fillStyle = style.paperTone || "#001eff";
+    context.fillRect(0, 0, width, height);
+    context.strokeStyle = "rgba(255,255,255,.18)";
+    for (let x = 0; x < width; x += 70) {
+      context.beginPath();
+      context.moveTo(x, 0);
+      context.lineTo(x, height);
+      context.stroke();
+    }
+    for (let y = 0; y < height; y += 70) {
+      context.beginPath();
+      context.moveTo(0, y);
+      context.lineTo(width, y);
+      context.stroke();
+    }
+  } else if (style.background === "notebook") {
+    context.fillStyle = style.paperTone;
+    context.fillRect(0, 0, width, height);
+    context.strokeStyle = "rgba(0,30,255,.18)";
+    for (let y = 120; y < height - 80; y += 54) {
+      context.beginPath();
+      context.moveTo(60, y);
+      context.lineTo(width - 60, y);
+      context.stroke();
+    }
+    context.strokeStyle = "rgba(255,75,79,.45)";
+    context.beginPath();
+    context.moveTo(112, 0);
+    context.lineTo(112, height);
+    context.stroke();
+  } else if (style.background === "collage") {
+    context.fillStyle = style.paperTone;
+    context.fillRect(0, 0, width, height);
+    context.fillStyle = "rgba(255,255,255,.88)";
+    context.fillRect(width * 0.08, height * 0.12, width * 0.62, height * 0.58);
+    context.fillStyle = "rgba(255,75,79,.88)";
+    context.fillRect(width * 0.54, height * 0.08, width * 0.34, height * 0.16);
+    context.fillStyle = "rgba(255,255,255,.38)";
+    context.fillRect(width * 0.14, height * 0.76, width * 0.7, height * 0.08);
+  } else if (style.background === "dark") {
+    const gradient = context.createLinearGradient(0, 0, width, height);
+    gradient.addColorStop(0, "#17171b");
+    gradient.addColorStop(1, "#00115c");
+    context.fillStyle = gradient;
+    context.fillRect(0, 0, width, height);
+  } else if (style.background === "rose") {
+    const gradient = context.createLinearGradient(0, 0, width, height);
+    gradient.addColorStop(0, style.paperTone);
+    gradient.addColorStop(1, "#ffffff");
+    context.fillStyle = gradient;
+    context.fillRect(0, 0, width, height);
+  } else {
+    context.fillStyle = style.paperTone;
+    context.fillRect(0, 0, width, height);
+    context.fillStyle = "rgba(0,0,0,.035)";
+    for (let x = 18; x < width; x += 42) {
+      for (let y = 18; y < height; y += 42) {
+        context.fillRect(x, y, 2, 2);
+      }
+    }
+  }
+}
+
+function drawPublicationDecor(context: CanvasRenderingContext2D, design: PublicationDesign, width: number, height: number) {
+  const { style } = design;
+  if (style.borderStyle === "thin" || style.borderStyle === "stamp") {
+    context.strokeStyle = style.accentColor;
+    context.lineWidth = style.borderStyle === "stamp" ? 8 : 4;
+    context.strokeRect(30, 30, width - 60, height - 60);
+  }
+  if (style.borderStyle === "tape") {
+    context.fillStyle = "rgba(255,255,255,.62)";
+    context.fillRect(width * 0.08, 28, width * 0.22, 42);
+    context.fillRect(width * 0.7, height - 70, width * 0.22, 42);
+  }
+  context.fillStyle = style.accentColor;
+  context.strokeStyle = style.accentColor;
+  if (style.sticker === "moon") {
+    context.beginPath();
+    context.arc(width - 120, 120, 46, 0, Math.PI * 2);
+    context.fill();
+    context.fillStyle = style.paperTone;
+    context.beginPath();
+    context.arc(width - 100, 105, 42, 0, Math.PI * 2);
+    context.fill();
+  } else if (style.sticker === "star") {
+    context.save();
+    context.translate(width - 130, 125);
+    context.beginPath();
+    for (let i = 0; i < 10; i += 1) {
+      const radius = i % 2 === 0 ? 54 : 22;
+      const angle = (Math.PI * 2 * i) / 10 - Math.PI / 2;
+      context.lineTo(Math.cos(angle) * radius, Math.sin(angle) * radius);
+    }
+    context.closePath();
+    context.fill();
+    context.restore();
+  } else if (style.sticker === "flower") {
+    for (let i = 0; i < 6; i += 1) {
+      const angle = (Math.PI * 2 * i) / 6;
+      context.beginPath();
+      context.arc(width - 130 + Math.cos(angle) * 32, 126 + Math.sin(angle) * 32, 25, 0, Math.PI * 2);
+      context.fill();
+    }
+    context.fillStyle = style.paperTone;
+    context.beginPath();
+    context.arc(width - 130, 126, 24, 0, Math.PI * 2);
+    context.fill();
+  } else if (style.sticker === "clip") {
+    context.lineWidth = 10;
+    context.beginPath();
+    context.arc(width - 120, 125, 44, Math.PI * 0.15, Math.PI * 1.85);
+    context.stroke();
+    context.beginPath();
+    context.arc(width - 120, 125, 24, Math.PI * 0.15, Math.PI * 1.85);
+    context.stroke();
+  } else if (style.sticker === "tape") {
+    context.save();
+    context.translate(width - 170, 110);
+    context.rotate(-0.16);
+    context.fillStyle = "rgba(255,255,255,.7)";
+    context.fillRect(0, 0, 150, 46);
+    context.restore();
+  }
+  if (style.stamp !== "none") {
+    context.save();
+    context.translate(width - 176, height - 120);
+    context.rotate(-0.14);
+    context.strokeStyle = style.accentColor;
+    context.lineWidth = 5;
+    context.strokeRect(-70, -28, 140, 56);
+    context.fillStyle = style.accentColor;
+    context.font = "700 24px Arial";
+    context.textAlign = "center";
+    context.textBaseline = "middle";
+    context.fillText(style.stamp.toUpperCase(), 0, 0);
+    context.restore();
+  }
+}
+
+function drawPublicationCanvas(design: PublicationDesign) {
+  const size = canvasSizeMeta[design.canvasSize];
+  const canvas = document.createElement("canvas");
+  canvas.width = size.width;
+  canvas.height = size.height;
+  const context = canvas.getContext("2d");
+  if (!context) throw new Error("Canvas is not supported in this browser.");
+  drawBackground(context, design, size.width, size.height);
+  drawPublicationDecor(context, design, size.width, size.height);
+
+  const padding = design.style.padding;
+  const maxWidth = size.width - padding * 2;
+  context.fillStyle = design.style.textColor;
+  context.font = `800 ${design.style.fontSize}px ${fontStacks[design.style.fontFamily]}`;
+  context.textAlign = design.style.align;
+  context.textBaseline = "top";
+  const x = design.style.align === "center" ? size.width / 2 : design.style.align === "right" ? size.width - padding : padding;
+  const lines = wrapCanvasText(context, design.poemText, maxWidth);
+  const lineHeight = design.style.fontSize * design.style.lineHeight;
+  const creditsReserve = design.style.showCredits || design.style.showTags ? 130 : 50;
+  let y = padding + 28;
+  lines.slice(0, Math.floor((size.height - padding * 2 - creditsReserve) / lineHeight)).forEach((line) => {
+    context.fillText(line, x, y, maxWidth);
+    y += lineHeight;
+  });
+
+  context.textAlign = "left";
+  if (design.style.showCredits) {
+    context.font = `800 25px ${fontStacks.sans}`;
+    context.fillStyle = design.style.accentColor;
+    context.fillText(`By ${design.authorName}`, padding, size.height - padding - 78);
+    if (design.contributorNames.length > 1) {
+      context.font = `700 20px ${fontStacks.sans}`;
+      context.fillText(`with ${design.contributorNames.slice(1).join(" / ")}`, padding, size.height - padding - 48);
+    }
+  }
+  if (design.style.showTags && design.tags.length > 0) {
+    context.font = `700 19px ${fontStacks.mono}`;
+    context.fillStyle = design.style.textColor;
+    context.fillText(design.tags.slice(0, 4).join("  "), padding, size.height - padding - 18);
+  }
+  return canvas;
+}
+
+function canvasToBlob(canvas: HTMLCanvasElement, type: string, quality = 0.92) {
+  return new Promise<Blob>((resolve, reject) => {
+    canvas.toBlob((blob) => (blob ? resolve(blob) : reject(new Error("Export failed."))), type, quality);
+  });
+}
+
+function downloadBlob(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = filename;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  URL.revokeObjectURL(url);
+}
+
+function sanitizeFilename(value: string) {
+  const slug = value.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+  return slug || "linespace-poem";
+}
+
+function pdfFromJpeg(jpeg: Uint8Array, width: number, height: number) {
+  const encoder = new TextEncoder();
+  const chunks: Uint8Array[] = [];
+  const offsets: number[] = [];
+  let length = 0;
+  const pushText = (text: string) => {
+    const bytes = encoder.encode(text);
+    chunks.push(bytes);
+    length += bytes.length;
+  };
+  const pushBytes = (bytes: Uint8Array) => {
+    chunks.push(bytes);
+    length += bytes.length;
+  };
+  const object = (body: string | Uint8Array) => {
+    offsets.push(length);
+    pushText(`${offsets.length} 0 obj\n`);
+    if (typeof body === "string") pushText(body);
+    else pushBytes(body);
+    pushText("\nendobj\n");
+  };
+  const content = `q\n${width} 0 0 ${height} 0 0 cm\n/Im0 Do\nQ`;
+  pushText("%PDF-1.3\n");
+  object("<< /Type /Catalog /Pages 2 0 R >>");
+  object("<< /Type /Pages /Kids [3 0 R] /Count 1 >>");
+  object(`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${width} ${height}] /Resources << /XObject << /Im0 4 0 R >> >> /Contents 5 0 R >>`);
+  offsets.push(length);
+  pushText(`4 0 obj\n<< /Type /XObject /Subtype /Image /Width ${width} /Height ${height} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${jpeg.length} >>\nstream\n`);
+  pushBytes(jpeg);
+  pushText("\nendstream\nendobj\n");
+  object(`<< /Length ${content.length} >>\nstream\n${content}\nendstream`);
+  const xrefStart = length;
+  pushText(`xref\n0 ${offsets.length + 1}\n0000000000 65535 f \n`);
+  offsets.forEach((offset) => pushText(`${String(offset).padStart(10, "0")} 00000 n \n`));
+  pushText(`trailer\n<< /Size ${offsets.length + 1} /Root 1 0 R >>\nstartxref\n${xrefStart}\n%%EOF`);
+  const result = new Uint8Array(length);
+  let cursor = 0;
+  chunks.forEach((chunk) => {
+    result.set(chunk, cursor);
+    cursor += chunk.length;
+  });
+  return new Blob([result], { type: "application/pdf" });
+}
+
+const publicationExportService = {
+  async exportJpg(design: PublicationDesign) {
+    const canvas = drawPublicationCanvas(design);
+    const blob = await canvasToBlob(canvas, "image/jpeg", 0.92);
+    const filename = `${sanitizeFilename(design.title)}.jpg`;
+    downloadBlob(blob, filename);
+    return filename;
+  },
+  async exportPdf(design: PublicationDesign) {
+    const canvas = drawPublicationCanvas(design);
+    const jpegBlob = await canvasToBlob(canvas, "image/jpeg", 0.92);
+    const jpeg = new Uint8Array(await jpegBlob.arrayBuffer());
+    const blob = pdfFromJpeg(jpeg, canvas.width, canvas.height);
+    const filename = `${sanitizeFilename(design.title)}.pdf`;
+    downloadBlob(blob, filename);
+    return filename;
+  },
+};
+
 export default function App() {
   const [view, setView] = useState<View>("home");
   const [posts, setPosts] = useState<Post[]>(postsSeed);
@@ -154,6 +532,8 @@ export default function App() {
   const [fragments, setFragments] = useState<Fragment[]>(fragmentsSeed);
   const [contributions, setContributions] = useState<Contribution[]>(contributionsSeed);
   const [versionEvents, setVersionEvents] = useState<VersionEvent[]>(versionEventsSeed);
+  const [publicationDesigns, setPublicationDesigns] = useState<PublicationDesign[]>(initialPublicationDesigns);
+  const [exportRecords, setExportRecords] = useState<ExportRecord[]>([]);
   const [groupTopics, setGroupTopics] = useState<GroupTopic[]>(groupTopicsSeed);
   const [groupMessages, setGroupMessages] = useState<GroupChatMessage[]>(groupChatMessagesSeed);
   const [poemLinesByPost, setPoemLinesByPost] = useState<Record<string, PoemLine[]>>(poemLinesByPostSeed);
@@ -184,12 +564,20 @@ export default function App() {
   const [searchQuery, setSearchQuery] = useState("");
   const [settings, setSettings] = useState<CreateSettings>({
     publicPost: false,
+    visibilityMode: "private",
+    selectedGroupId: spacesSeed[0].id,
+    visibleUserIds: [],
+    hiddenUserIds: [],
     allowComments: true,
+    allowForward: false,
     allowReplies: true,
     allowQuote: false,
     allowBuild: true,
     allowLike: false,
     showHistory: true,
+    attributionMode: "named",
+    penName: "",
+    coAuthorIds: [],
   });
 
   const activePost = posts.find((post) => post.id === activePostId) ?? posts[0];
@@ -201,6 +589,7 @@ export default function App() {
   }, [activeComments, suggestions]);
   const activeContributions = useMemo(() => contributions.filter((item) => item.workId === activePost.id), [contributions, activePost.id]);
   const activeEvents = useMemo(() => versionEvents.filter((event) => event.workId === activePost.id), [versionEvents, activePost.id]);
+  const activePublicationDesign = publicationDesigns.find((design) => design.id === activePost.publicationDesignId || design.workId === activePost.id);
   const activeSpace = activePost.spaceId ? spacesSeed.find((space) => space.id === activePost.spaceId) : undefined;
   const activeChannel = activePost.channelId ? channelsSeed.find((channel) => channel.id === activePost.channelId) : undefined;
   const activeSourceFragment = activePost.sourceFragmentId ? fragments.find((fragment) => fragment.id === activePost.sourceFragmentId) : undefined;
@@ -421,6 +810,52 @@ export default function App() {
     updatePost(id, (post) => ({ ...post, saved: !post.saved, saves: post.saves + (post.saved ? -1 : 1) }));
   };
 
+  const upsertPublicationDesign = (design: PublicationDesign) => {
+    setPublicationDesigns((current) => [design, ...current.filter((item) => item.id !== design.id)]);
+  };
+
+  const savePublicationDesign = (design: PublicationDesign) => {
+    const updated: PublicationDesign = { ...design, updatedAt: nowIso() };
+    upsertPublicationDesign(updated);
+    if (updated.workId) {
+      updatePost(updated.workId, (post) => ({ ...post, publicationDesignId: updated.id, showHistory: true }));
+      addEvent(updated.workId, "design_saved", { designId: updated.id, templateId: updated.templateId, title: updated.title });
+    }
+  };
+
+  const lockPublicationDesign = (design: PublicationDesign) => {
+    const lockedAt = nowIso();
+    const updated: PublicationDesign = { ...design, locked: true, lockedAt, updatedAt: lockedAt };
+    upsertPublicationDesign(updated);
+    if (updated.workId) {
+      updatePost(updated.workId, (post) => ({
+        ...post,
+        kind: "final",
+        stage: "Final Version",
+        publicationDesignId: updated.id,
+        showHistory: true,
+        lockState: { status: "locked", lockedBy: currentUser.id, lockedAt, canBranch: true },
+      }));
+      addEvent(updated.workId, "design_locked", { designId: updated.id, templateId: updated.templateId, canvasSize: updated.canvasSize });
+    }
+  };
+
+  const recordPublicationExport = (design: PublicationDesign, type: ExportRecord["type"], filename: string) => {
+    const record: ExportRecord = {
+      id: `export-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+      designId: design.id,
+      workId: design.workId,
+      type,
+      filename,
+      createdAt: nowIso(),
+    };
+    setExportRecords((current) => [record, ...current]);
+    if (design.workId) {
+      updatePost(design.workId, (post) => ({ ...post, exportRecordIds: [record.id, ...(post.exportRecordIds ?? [])], showHistory: true }));
+      addEvent(design.workId, type === "jpg" ? "jpg_exported" : "pdf_exported", { designId: design.id, filename });
+    }
+  };
+
   const likeComment = (id: string) => {
     setComments((current) => current.map((comment) => (comment.id === id ? { ...comment, liked: !comment.liked, likes: comment.likes + (comment.liked ? -1 : 1) } : comment)));
   };
@@ -599,22 +1034,43 @@ export default function App() {
     event.preventDefault();
     const text = createDraft.trim();
     if (!text) return;
+    const selectedGroup = spacesSeed.find((space) => space.id === settings.selectedGroupId);
+    const visibleHandles = settings.visibleUserIds
+      .map((id) => Object.values(authors).find((author) => author.id === id)?.handle)
+      .filter((handle): handle is string => Boolean(handle));
+    const hiddenHandles = settings.hiddenUserIds
+      .map((id) => Object.values(authors).find((author) => author.id === id)?.handle)
+      .filter((handle): handle is string => Boolean(handle));
+    const coAuthors = settings.coAuthorIds
+      .map((id) => Object.values(authors).find((author) => author.id === id))
+      .filter((author): author is Author => Boolean(author));
+    const penName = settings.penName.trim();
+    const publishingAuthor: Author = settings.attributionMode === "anonymous"
+      ? { id: currentUser.id, name: "Anonymous poet", handle: "@anonymous", avatar: "An" }
+      : settings.attributionMode === "pen_name" && penName
+        ? { id: currentUser.id, name: penName, handle: `@${penName.toLowerCase().replace(/[^a-z0-9]+/g, ".").replace(/^\.+|\.+$/g, "") || "pen.name"}`, avatar: penName.slice(0, 2).toUpperCase() }
+        : currentUser;
+    const createAttribution = settings.attributionMode === "anonymous"
+      ? { defaultStyle: "anonymous_collective", requiresContributorConsent: true } as const
+      : settings.coAuthorIds.length > 0
+        ? { defaultStyle: "coauthors", requiresContributorConsent: true, collectiveName: penName || undefined } as const
+        : { ...helperAttribution, collectiveName: penName || undefined };
 
     if (creationKind === "Private fragment") {
       const fragment: Fragment = {
         id: `f${Date.now()}`,
         text,
-        creator: currentUser,
+        creator: settings.attributionMode === "anonymous" ? undefined : publishingAuthor,
         creatorId: currentUser.id,
-        anonymous: !settings.publicPost,
-        visibility: settings.publicPost ? "public" : "private",
+        anonymous: settings.attributionMode === "anonymous",
+        visibility: settings.visibilityMode === "public" ? "public" : settings.visibilityMode === "group" ? "group" : "private",
         tags: createTags.length ? createTags : ["#fragment"],
         mood: "new fragment",
         source: "manual",
         savedBy: [currentUser.id],
         inspiredWorks: [],
-        allowInvite: settings.allowBuild,
-        allowRemix: settings.allowQuote,
+        allowInvite: settings.allowComments,
+        allowRemix: settings.allowForward,
         invitedBy: [],
         activeChatCount: 0,
         activeThreadCount: 0,
@@ -629,16 +1085,28 @@ export default function App() {
 
     const isTurnTaking = createMode === "turn_taking" || creationKind === "Turn-taking thread" || creationKind === "Challenge response";
     const isFinal = creationKind === "Final version";
-    const visibility: Post["visibility"] = settings.publicPost ? "public" : creationKind === "Group post" ? "group" : creationKind === "Challenge response" ? "challenge" : "private";
+    const draftDesign = publicationDesigns.find((design) => !design.workId && design.poemText.trim() === text);
+    const visibility: Post["visibility"] = creationKind === "Challenge response"
+      ? "challenge"
+      : settings.visibilityMode === "public"
+        ? "public"
+        : settings.visibilityMode === "group"
+          ? "group"
+          : settings.visibilityMode === "include_people" || settings.visibilityMode === "exclude_people"
+            ? "invited"
+            : "private";
     const next: Post = {
       id: `p${Date.now()}`,
-      author: currentUser,
+      author: publishingAuthor,
       mode: isTurnTaking ? "turn_taking" : "facilitated",
       kind: isTurnTaking ? "thread" : isFinal ? "final" : "draft",
       ownerId: currentUser.id,
-      authorIds: [currentUser.id],
-      spaceId: creationKind === "Group post" ? "space-cyber-lyric" : undefined,
+      authorIds: Array.from(new Set([currentUser.id, ...settings.coAuthorIds])),
+      spaceId: visibility === "group" ? selectedGroup?.id : creationKind === "Group post" ? settings.selectedGroupId : undefined,
       channelId: creationKind === "Challenge response" || creationKind === "Turn-taking thread" ? "channel-moon-relay" : "channel-draft-feedback",
+      visibilityGroupId: visibility === "group" ? selectedGroup?.id : undefined,
+      visibleUserIds: settings.visibilityMode === "include_people" ? settings.visibleUserIds : undefined,
+      hiddenUserIds: settings.visibilityMode === "exclude_people" ? settings.hiddenUserIds : undefined,
       stage: isFinal ? "Final Version" : "Started from",
       visibility,
       body: text,
@@ -646,22 +1114,26 @@ export default function App() {
       tags: createTags.length > 0 ? createTags : ["#poem"],
       color: backgroundImage ? "photo" : isFinal ? "red" : "blue",
       imageUrl: backgroundImage || undefined,
-      repliesOpen: settings.allowComments || settings.allowReplies,
-      allowReplies: settings.allowReplies,
-      allowBuild: isTurnTaking || settings.allowBuild,
-      quoteAllowed: settings.allowQuote || isTurnTaking,
+      repliesOpen: settings.allowComments,
+      allowReplies: settings.allowComments && settings.allowReplies,
+      allowBuild: isTurnTaking || settings.allowForward,
+      quoteAllowed: settings.allowForward || isTurnTaking,
       allowLike: settings.allowLike || settings.publicPost,
       showHistory: settings.showHistory || isTurnTaking,
-      invited: isTurnTaking ? ["@Lin", "@Jia"] : [],
+      invited: isTurnTaking ? ["@Lin", "@Jia", ...coAuthors.map((author) => author.handle)] : settings.visibilityMode === "include_people" ? visibleHandles : settings.visibilityMode === "exclude_people" ? hiddenHandles.map((handle) => `hidden:${handle}`) : coAuthors.map((author) => author.handle),
       likes: 0,
       comments: 0,
       quotes: 0,
       saves: 0,
       liked: false,
       saved: false,
-      contributors: 1,
-      feedbackContract: isTurnTaking ? turnTakingContract : settings.allowBuild ? defaultFeedbackContract : closeReadingContract,
-      attributionPolicy: isTurnTaking ? collectiveAttribution : helperAttribution,
+      contributors: Math.max(1, new Set([currentUser.id, ...settings.coAuthorIds]).size),
+      feedbackContract: isTurnTaking ? turnTakingContract : settings.allowForward ? defaultFeedbackContract : closeReadingContract,
+      attributionPolicy: isTurnTaking ? collectiveAttribution : createAttribution,
+      attributionName: settings.attributionMode === "anonymous" ? "Anonymous" : penName || publishingAuthor.name,
+      coAuthorIds: settings.coAuthorIds,
+      anonymous: settings.attributionMode === "anonymous",
+      publicationDesignId: draftDesign?.id,
       lockState: isFinal ? { status: "locked", lockedBy: currentUser.id, lockedAt: nowIso(), canBranch: true } : { status: "unlocked", canBranch: true },
       currentVersionId: `v-${Date.now()}`,
       turnQueue: isTurnTaking ? [authors.lin.id, authors.jia.id, currentUser.id] : undefined,
@@ -670,6 +1142,20 @@ export default function App() {
     };
     setPosts((current) => [next, ...current]);
     setPoemLinesByPost((current) => ({ ...current, [next.id]: makePoemLines(next) }));
+    if (draftDesign) {
+      const attachedDesign: PublicationDesign = {
+        ...draftDesign,
+        workId: next.id,
+        title: shorten(next.body, 52),
+        poemText: next.lines.join("\n"),
+        authorName: next.attributionName ?? next.author.name,
+        contributorNames: Array.from(new Set([next.author.name, ...coAuthors.map((author) => author.name)])),
+        tags: next.tags,
+        updatedAt: nowIso(),
+      };
+      upsertPublicationDesign(attachedDesign);
+      addEvent(next.id, attachedDesign.locked ? "design_locked" : "design_saved", { designId: attachedDesign.id, templateId: attachedDesign.templateId, title: attachedDesign.title });
+    }
     addEvent(next.id, "created", { text, mode: next.mode, kind: next.kind });
     if (isFinal) addEvent(next.id, "version_locked", { versionId: next.currentVersionId, label: "Created as locked final" });
     setActivePostId(next.id);
@@ -803,6 +1289,39 @@ export default function App() {
     if (!channel) return;
     const space = channel.spaceId ? spacesSeed.find((item) => item.id === channel.spaceId) : undefined;
     const isRelay = startMode === "relay";
+    if (!isRelay) {
+      const ownedGroups = spacesSeed.filter((item) => item.members.some((member) => member.userId === currentUser.id));
+      const targetSpace = space?.members.some((member) => member.userId === currentUser.id) ? space : ownedGroups[0];
+      if (!targetSpace) return;
+      const nextTopic: GroupTopic = {
+        id: `topic-${Date.now()}`,
+        spaceId: targetSpace.id,
+        title: `Brainstorm: ${channel.title}`,
+        type: "co_creation_call",
+        starter: channel.prompt ?? "Start a group brainstorm for this challenge.",
+        createdBy: currentUser,
+        createdAt: nowIso(),
+        tags: Array.from(new Set(["#challenge_brainstorm", ...channel.tags])),
+        unread: 0,
+        active: true,
+      };
+      const nextMessage: GroupChatMessage = {
+        id: `gm-${Date.now()}-challenge`,
+        spaceId: targetSpace.id,
+        topicId: nextTopic.id,
+        author: currentUser,
+        text: `Starting a group brainstorm for ${channel.title}. ${channel.prompt ?? ""}`.trim(),
+        createdAt: nowIso(),
+        mentions: [],
+        reactions: 0,
+      };
+      setGroupTopics((current) => [nextTopic, ...current]);
+      setGroupMessages((current) => [...current, nextMessage]);
+      setActiveChannelId(channel.id);
+      setSpaceNotice(`${channel.title} moved into ${targetSpace.name} as a group brainstorm topic.`);
+      openGroupChat(targetSpace.id, nextTopic.id);
+      return;
+    }
     const starter = isRelay
       ? channel.prompt ?? "The first line waits for the next turn."
       : `Brainstorm for ${channel.title}: collect images first, then decide what becomes the poem.`;
@@ -855,7 +1374,7 @@ export default function App() {
     navigate("detail");
   };
 
-  const fragmentAction = (fragmentId: string, action: FragmentActionName) => {
+  const fragmentAction = (fragmentId: string, action: FragmentActionName, targetUserId?: string) => {
     const fragment = fragments.find((item) => item.id === fragmentId);
     if (!fragment) return;
     if (action === "chat" || action === "thread" || action === "branch") {
@@ -946,7 +1465,13 @@ export default function App() {
           const saved = item.savedBy.includes(currentUser.id);
           return { ...item, savedBy: saved ? item.savedBy.filter((id) => id !== currentUser.id) : [...item.savedBy, currentUser.id] };
         }
-        if (action === "invite") return { ...item, invitedBy: Array.from(new Set([...item.invitedBy, currentUser.id])) };
+        if (action === "invite") {
+          return {
+            ...item,
+            invitedBy: Array.from(new Set([...item.invitedBy, currentUser.id])),
+            invitedUserIds: targetUserId ? Array.from(new Set([...(item.invitedUserIds ?? []), targetUserId])) : item.invitedUserIds,
+          };
+        }
         return { ...item, activeChatCount: item.activeChatCount + 1 };
       }),
     );
@@ -954,7 +1479,10 @@ export default function App() {
       addEvent(fragmentId, "fragment_saved", { fragmentId, text: fragment.text });
       setSpaceNotice("Fragment saved to your notes.");
     }
-    if (action === "invite") setSpaceNotice("Invitation marked. The creator can be pulled into a co-writing flow later.");
+    if (action === "invite") {
+      const target = Object.values(authors).find((author) => author.id === targetUserId);
+      setSpaceNotice(target ? `Invitation sent to ${target.handle}.` : "Invitation marked. The creator can be pulled into a co-writing flow later.");
+    }
   };
 
   return (
@@ -987,6 +1515,7 @@ export default function App() {
               channels={channelsSeed}
               fragments={fragments}
               posts={filteredPosts}
+              topics={groupTopics}
               comments={comments}
               activeSpaceId={activeSpaceId}
               setActiveSpaceId={setActiveSpaceId}
@@ -1020,11 +1549,16 @@ export default function App() {
               setBackgroundImage={setBackgroundImage}
               settings={settings}
               setSettings={setSettings}
+              spaces={spacesSeed}
               publishPost={publishPost}
               creationKind={creationKind}
               setCreationKind={setCreationKind}
               createMode={createMode}
               setCreateMode={setCreateMode}
+              publicationTemplates={publicationTemplatesSeed}
+              onSaveDesign={savePublicationDesign}
+              onLockDesign={lockPublicationDesign}
+              onExportDesign={recordPublicationExport}
             />
           )}
           {view === "groupChat" && (
@@ -1075,6 +1609,8 @@ export default function App() {
               posts={posts}
               fragments={fragments}
               contributions={contributions}
+              publicationDesigns={publicationDesigns}
+              exportRecords={exportRecords}
               tab={profileTab}
               setTab={setProfileTab}
               openPost={openPost}
@@ -1100,6 +1636,8 @@ export default function App() {
               space={activeSpace}
               channel={activeChannel}
               sourceFragment={activeSourceFragment}
+              publicationDesign={activePublicationDesign}
+              publicationTemplates={publicationTemplatesSeed}
               openContext={openActiveContext}
               setCommentDraft={setCommentDraft}
               setTurnDraft={setTurnDraft}
@@ -1115,6 +1653,9 @@ export default function App() {
               lockVersion={lockVersion}
               lockLine={lockLine}
               saveAuthorVersion={saveAuthorVersion}
+              onSaveDesign={savePublicationDesign}
+              onLockDesign={lockPublicationDesign}
+              onExportDesign={recordPublicationExport}
               openHistory={openHistory}
               navigate={navigate}
               searchInput={searchInput}
@@ -1315,6 +1856,7 @@ function SpacesPage({
   channels,
   fragments,
   posts,
+  topics,
   comments,
   activeSpaceId,
   setActiveSpaceId,
@@ -1341,6 +1883,7 @@ function SpacesPage({
   channels: Channel[];
   fragments: Fragment[];
   posts: Post[];
+  topics: GroupTopic[];
   comments: Comment[];
   activeSpaceId: string;
   setActiveSpaceId: (id: string) => void;
@@ -1351,7 +1894,7 @@ function SpacesPage({
   joinChallenge: (channelId: string, startMode: ChallengeStartMode) => void;
   openGroupChat: (spaceId: string, topicId?: string) => void;
   forwardPostToGroup: (spaceId: string, postId: string) => void;
-  fragmentAction: (fragmentId: string, action: FragmentActionName) => void;
+  fragmentAction: (fragmentId: string, action: FragmentActionName, targetUserId?: string) => void;
   openPost: (id: string) => void;
   openQuote: (id: string) => void;
   openHistory: (id: string) => void;
@@ -1375,7 +1918,7 @@ function SpacesPage({
         </div>
       </div>
       {spaceNotice && <div className="mb-5 rounded-[20px] bg-[#eef0ff] px-5 py-4 text-sm font-black text-[#001eff]">{spaceNotice}</div>}
-      {tab === "Groups" && <GroupsPanel spaces={spaces} channels={channels} posts={posts} activeSpaceId={activeSpaceId} setActiveSpaceId={setActiveSpaceId} startGroupDraft={startGroupDraft} openGroupChat={openGroupChat} forwardPostToGroup={forwardPostToGroup} openPost={openPost} />}
+      {tab === "Groups" && <GroupsPanel spaces={spaces} channels={channels} posts={posts} topics={topics} activeSpaceId={activeSpaceId} setActiveSpaceId={setActiveSpaceId} startGroupDraft={startGroupDraft} openGroupChat={openGroupChat} forwardPostToGroup={forwardPostToGroup} openPost={openPost} />}
       {tab === "Challenges" && (
         <ChallengesPanel
           channels={channels.filter((channel) => channel.kind === "challenge" || channel.kind === "turn_taking")}
@@ -1396,6 +1939,7 @@ function GroupsPanel({
   spaces,
   channels,
   posts,
+  topics,
   activeSpaceId,
   setActiveSpaceId,
   startGroupDraft,
@@ -1406,6 +1950,7 @@ function GroupsPanel({
   spaces: Space[];
   channels: Channel[];
   posts: Post[];
+  topics: GroupTopic[];
   activeSpaceId: string;
   setActiveSpaceId: (id: string) => void;
   startGroupDraft: (spaceId: string, channelId?: string) => void;
@@ -1416,6 +1961,7 @@ function GroupsPanel({
   const activeSpace = spaces.find((space) => space.id === activeSpaceId) ?? spaces[0];
   const relatedChannels = channels.filter((channel) => activeSpace.channels.includes(channel.id));
   const relatedPosts = posts.filter((post) => post.spaceId === activeSpace.id);
+  const relatedTopics = topics.filter((topic) => topic.spaceId === activeSpace.id);
   const memberRows = activeSpace.members.map((member) => ({
     ...member,
     author: Object.values(authors).find((author) => author.id === member.userId),
@@ -1466,33 +2012,47 @@ function GroupsPanel({
 
         <div className="mt-6 grid gap-5 lg:grid-cols-[minmax(0,1fr)_320px]">
           <div className="grid gap-5">
-            <section>
-              <h4 className="font-mono text-2xl font-black text-[#001eff]">Group feedback workflow</h4>
-              <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                <WorkflowStep index="1" title="Name the contract" body="Author chooses encouragement, close reading, line revision, possible lines, or co-writing invite." />
-                <WorkflowStep index="2" title="Discuss in context" body="Members comment inside the group, keeping brainstorm material outside the poem." />
-                <WorkflowStep index="3" title="Organize signals" body="AI sorts comments into possible lines, themes, tone feedback, and revision hints." />
-                <WorkflowStep index="4" title="Author locks" body="The author accepts, edits, ignores, then locks a version with contribution history." />
+            <section className="rounded-[24px] border-2 border-[#e8e0d9] p-5">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <h4 className="font-mono text-2xl font-black text-[#001eff]">Recent works</h4>
+                <button type="button" onClick={() => startGroupDraft(activeSpace.id, relatedChannels[0]?.id)} className="rounded-full bg-[#001eff] px-5 py-2 text-sm font-black text-white">
+                  Start group post
+                </button>
+              </div>
+              <div className="mt-4 grid gap-3 md:grid-cols-2">
+                {relatedPosts.slice(0, 6).map((post) => (
+                  <div key={post.id} className="rounded-[18px] bg-[#eef0ff] p-4">
+                    <button type="button" onClick={() => openPost(post.id)} className="w-full text-left">
+                      <p className="text-xs font-black uppercase text-[#001eff]">{post.mode === "turn_taking" ? "Turn-taking" : "Facilitated"} · {post.stage}</p>
+                      <p className="mt-2 text-base font-black leading-snug">{shorten(post.body, 92)}</p>
+                      <p className="mt-2 text-xs font-bold text-[#737783]">{post.author.handle} · {post.comments} comments · {post.saves} saves</p>
+                    </button>
+                    <button type="button" onClick={() => forwardPostToGroup(activeSpace.id, post.id)} className="mt-3 rounded-full bg-white px-4 py-1.5 text-xs font-black text-[#001eff]">
+                      <Repeat2 size={13} className="mr-1 inline" /> Forward to chat
+                    </button>
+                  </div>
+                ))}
+                {relatedPosts.length === 0 && <p className="text-sm font-bold text-[#737783]">No works in this group yet.</p>}
               </div>
             </section>
 
-            <section>
-              <h4 className="font-mono text-2xl font-black text-[#001eff]">Channels</h4>
+            <section className="rounded-[24px] border-2 border-[#001eff] p-5">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <h4 className="font-mono text-2xl font-black text-[#001eff]">Recent topics</h4>
+                <button type="button" onClick={() => openGroupChat(activeSpace.id)} className="rounded-full border-2 border-[#001eff] px-5 py-2 text-sm font-black text-[#001eff]">
+                  Open all chat
+                </button>
+              </div>
               <div className="mt-4 grid gap-3">
-                {relatedChannels.map((channel) => (
-                  <div key={channel.id} className="rounded-[20px] border-2 border-[#e8e0d9] p-4">
-                    <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
-                      <div>
-                        <p className="font-black text-[#001eff]">{channel.title}</p>
-                        <p className="mt-1 text-sm font-bold text-[#737783]">{channel.prompt}</p>
-                      </div>
-                      <button type="button" onClick={() => startGroupDraft(activeSpace.id, channel.id)} className="rounded-full border-2 border-[#001eff] px-5 py-2 text-sm font-black text-[#001eff]">
-                        Start feedback draft
-                      </button>
-                    </div>
-                    <div className="mt-3 flex flex-wrap gap-2">{channel.tags.map((tag) => <BlueChip key={tag}>{tag}</BlueChip>)}</div>
-                  </div>
+                {relatedTopics.slice(0, 5).map((topic) => (
+                  <button key={topic.id} type="button" onClick={() => openGroupChat(activeSpace.id, topic.id)} className="rounded-[18px] bg-[#eef0ff] p-4 text-left">
+                    <p className="text-xs font-black uppercase text-[#001eff]">{topicTypeLabel(topic.type)} · {topic.unread} unread</p>
+                    <p className="mt-2 text-lg font-black leading-tight">{topic.title}</p>
+                    <p className="mt-2 text-sm font-bold text-[#737783]">{shorten(topic.starter, 110)}</p>
+                    <div className="mt-3 flex flex-wrap gap-2">{topic.tags.map((tag) => <BlueChip key={tag}>{tag}</BlueChip>)}</div>
+                  </button>
                 ))}
+                {relatedTopics.length === 0 && <p className="text-sm font-bold text-[#737783]">No topics yet. Open group chat to start one.</p>}
               </div>
             </section>
           </div>
@@ -1516,23 +2076,6 @@ function GroupsPanel({
                     </div>
                   </div>
                 ))}
-              </div>
-            </div>
-            <div className="rounded-[22px] border-2 border-[#001eff] p-4">
-              <p className="font-mono text-xl font-black text-[#001eff]">Recent works</p>
-              <div className="mt-3 grid gap-2">
-                {relatedPosts.slice(0, 3).map((post) => (
-                  <div key={post.id} className="rounded-[16px] bg-[#eef0ff] p-3">
-                    <button type="button" onClick={() => openPost(post.id)} className="w-full text-left">
-                      <p className="text-sm font-black text-[#001eff]">{post.mode === "turn_taking" ? "Turn-taking" : "Facilitated"} · {post.lockState.status}</p>
-                      <p className="mt-1 text-sm font-bold">{shorten(post.body, 72)}</p>
-                    </button>
-                    <button type="button" onClick={() => forwardPostToGroup(activeSpace.id, post.id)} className="mt-3 rounded-full bg-white px-4 py-1.5 text-xs font-black text-[#001eff]">
-                      <Repeat2 size={13} className="mr-1 inline" /> Forward to chat
-                    </button>
-                  </div>
-                ))}
-                {relatedPosts.length === 0 && <p className="text-sm font-bold text-[#737783]">No works in this group yet.</p>}
               </div>
             </div>
           </aside>
@@ -1586,7 +2129,7 @@ function ChallengesPanel({
               </div>
               <div className="mt-4 grid gap-2 sm:grid-cols-2">
                 <button type="button" onClick={() => joinChallenge(channel.id, "chat")} className="rounded-full bg-[#001eff] px-4 py-2 text-sm font-black text-white">
-                  Group chat brainstorm
+                  Create group topic
                 </button>
                 <button type="button" onClick={() => joinChallenge(channel.id, "relay")} className="rounded-full border-2 border-[#ff4b4f] px-4 py-2 text-sm font-black text-[#ff4b4f]">
                   Turn-taking thread
@@ -1610,9 +2153,9 @@ function ChallengesPanel({
         <div className="mt-6 grid gap-4 md:grid-cols-2">
           <div className="rounded-[22px] bg-[#eef0ff] p-5">
             <p className="font-mono text-xl font-black text-[#001eff]">Group chat brainstorm</p>
-            <p className="mt-2 text-sm font-bold leading-relaxed text-[#3b3d45]">Use this when participants need images, direction, and feedback before any line becomes canonical.</p>
+            <p className="mt-2 text-sm font-bold leading-relaxed text-[#3b3d45]">Create a topic inside one of your groups, then brainstorm with mentions, quotes, and forwarded posts.</p>
             <button type="button" onClick={() => joinChallenge(activeChannel.id, "chat")} className="mt-4 rounded-full bg-[#001eff] px-5 py-2 text-sm font-black text-white">
-              Start chat draft
+              Create group topic
             </button>
           </div>
           <div className="rounded-[22px] bg-[#fff3f6] p-5">
@@ -1652,7 +2195,7 @@ function ChallengesPanel({
   );
 }
 
-function FragmentsPanel({ fragments, fragmentAction }: { fragments: Fragment[]; fragmentAction: (fragmentId: string, action: FragmentActionName) => void }) {
+function FragmentsPanel({ fragments, fragmentAction }: { fragments: Fragment[]; fragmentAction: (fragmentId: string, action: FragmentActionName, targetUserId?: string) => void }) {
   const savedCount = fragments.reduce((sum, fragment) => sum + fragment.savedBy.length, 0);
   const activeWorks = fragments.reduce((sum, fragment) => sum + fragment.activeChatCount + fragment.activeThreadCount + fragment.branchCount, 0);
   return (
@@ -1784,6 +2327,364 @@ function StreamMapPanel({
   );
 }
 
+function PublicationStudio({
+  workId,
+  poemText,
+  authorName,
+  contributorNames,
+  tags,
+  templates,
+  initialDesign,
+  onSaveDesign,
+  onLockDesign,
+  onExportDesign,
+}: {
+  workId?: string;
+  poemText: string;
+  authorName: string;
+  contributorNames: string[];
+  tags: string[];
+  templates: DesignTemplate[];
+  initialDesign?: PublicationDesign;
+  onSaveDesign: (design: PublicationDesign) => void;
+  onLockDesign: (design: PublicationDesign) => void;
+  onExportDesign: (design: PublicationDesign, type: ExportRecord["type"], filename: string) => void;
+}) {
+  const [activeStep, setActiveStep] = useState<"Write" | "Package" | "Lock & Export">(initialDesign?.locked ? "Lock & Export" : "Package");
+  const [mode, setMode] = useState<DesignMode>(initialDesign?.mode ?? "template");
+  const [status, setStatus] = useState("");
+  const [design, setDesign] = useState<PublicationDesign>(() =>
+    initialDesign ?? makePublicationDesign({ workId, poemText, authorName, contributorNames, tags, template: templates[0] }),
+  );
+  const liveDesign: PublicationDesign = {
+    ...design,
+    workId,
+    poemText,
+    authorName,
+    contributorNames,
+    tags,
+    mode,
+    title: design.title || shorten(poemText.replace(/\s+/g, " "), 52),
+  };
+  const selectedTemplate = templates.find((template) => template.id === liveDesign.templateId) ?? templates[0];
+  const updateStyle = (patch: Partial<PublicationDesignStyle>) => {
+    setMode("free_studio");
+    setDesign((current) => ({ ...current, mode: "free_studio", style: { ...current.style, ...patch }, updatedAt: nowIso() }));
+  };
+  const selectTemplate = (template: DesignTemplate) => {
+    setMode("template");
+    setDesign((current) => ({
+      ...current,
+      mode: "template",
+      templateId: template.id,
+      canvasSize: template.canvasSize,
+      style: { ...template.defaultStyle },
+      updatedAt: nowIso(),
+    }));
+  };
+  const saveDraft = () => {
+    onSaveDesign(liveDesign);
+    setStatus("Design draft saved");
+  };
+  const lockDesign = () => {
+    const lockedAt = nowIso();
+    const locked = { ...liveDesign, locked: true, lockedAt, updatedAt: lockedAt };
+    setDesign(locked);
+    onLockDesign(locked);
+    setActiveStep("Lock & Export");
+    setStatus("Final design locked");
+  };
+  const exportDesign = async (type: ExportRecord["type"]) => {
+    setStatus(type === "jpg" ? "Preparing JPG..." : "Preparing PDF...");
+    const filename = type === "jpg" ? await publicationExportService.exportJpg(liveDesign) : await publicationExportService.exportPdf(liveDesign);
+    onExportDesign(liveDesign, type, filename);
+    setStatus(`${filename} downloaded`);
+  };
+
+  return (
+    <section className="mt-8 rounded-[28px] border-2 border-[#001eff] bg-white p-4 lg:p-5">
+      <div className="mb-5 flex flex-col justify-between gap-4 lg:flex-row lg:items-center">
+        <div>
+          <p className="font-mono text-[28px] font-black leading-none text-[#001eff]">Publication Studio</p>
+          <p className="mt-2 text-sm font-black text-[#737783]">Package the poem as a finished visual object.</p>
+        </div>
+        <div className="grid grid-cols-3 overflow-hidden rounded-full border-2 border-[#001eff] text-center text-xs font-black sm:min-w-[390px]">
+          {(["Write", "Package", "Lock & Export"] as const).map((step) => (
+            <button
+              key={step}
+              type="button"
+              onClick={() => setActiveStep(step)}
+              className={`px-3 py-3 ${activeStep === step ? "bg-[#001eff] text-white" : "bg-white text-[#001eff]"}`}
+            >
+              {step}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="grid gap-5 lg:grid-cols-[260px_minmax(0,1fr)_300px] lg:items-start">
+        <aside className="order-2 grid gap-4 lg:order-1">
+          <div className="rounded-[22px] bg-[#eef0ff] p-3">
+            <p className="mb-3 text-sm font-black text-[#001eff]">Mode</p>
+            <div className="grid gap-2">
+              <button type="button" onClick={() => setMode("free_studio")} className={`rounded-[16px] border-2 px-4 py-3 text-left text-sm font-black ${mode === "free_studio" ? "border-[#001eff] bg-white text-[#001eff]" : "border-transparent bg-[#dfe5ff] text-[#444]"}`}>
+                Free Studio
+              </button>
+              <button type="button" onClick={() => setMode("template")} className={`rounded-[16px] border-2 px-4 py-3 text-left text-sm font-black ${mode === "template" ? "border-[#001eff] bg-white text-[#001eff]" : "border-transparent bg-[#dfe5ff] text-[#444]"}`}>
+                Templates
+              </button>
+            </div>
+          </div>
+          <div className="rounded-[22px] border-2 border-[#e8e0d9] p-3">
+            <p className="mb-3 text-sm font-black text-[#001eff]">Template gallery</p>
+            <div className="grid gap-3">
+              {templates.map((template) => (
+                <button
+                  key={template.id}
+                  type="button"
+                  onClick={() => selectTemplate(template)}
+                  className={`rounded-[18px] border-2 p-3 text-left ${selectedTemplate.id === template.id ? "border-[#001eff] bg-[#eef0ff]" : "border-[#e8e0d9] bg-white"}`}
+                >
+                  <span className="block text-sm font-black">{template.name}</span>
+                  <span className="mt-1 block text-xs font-bold text-[#737783]">{canvasSizeMeta[template.canvasSize].label} / {template.bestFor.replace("_", " ")}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        </aside>
+
+        <div className="order-1 lg:order-2">
+          <PublicationPreview design={liveDesign} />
+          <div className="mt-4 flex flex-wrap gap-3">
+            <button type="button" onClick={saveDraft} className="rounded-full border-2 border-[#001eff] px-5 py-3 text-sm font-black text-[#001eff]">Save design draft</button>
+            <button type="button" onClick={lockDesign} disabled={liveDesign.locked} className="rounded-full bg-[#ff4b4f] px-5 py-3 text-sm font-black text-white disabled:bg-[#d8a3a7]">
+              {liveDesign.locked ? "Final design locked" : "Lock final design"}
+            </button>
+            <button type="button" onClick={() => exportDesign("jpg")} className="rounded-full bg-[#001eff] px-5 py-3 text-sm font-black text-white">Export JPG</button>
+            <button type="button" onClick={() => exportDesign("pdf")} className="rounded-full bg-black px-5 py-3 text-sm font-black text-white">Export PDF</button>
+          </div>
+          {status && <p className="mt-3 rounded-full bg-[#eef0ff] px-4 py-2 text-sm font-black text-[#001eff]">{status}</p>}
+        </div>
+
+        <StyleInspector design={liveDesign} updateStyle={updateStyle} setCanvasSize={(canvasSize) => setDesign((current) => ({ ...current, canvasSize, updatedAt: nowIso() }))} />
+      </div>
+    </section>
+  );
+}
+
+function PublicationPreview({ design }: { design: PublicationDesign }) {
+  const size = canvasSizeMeta[design.canvasSize];
+  const backgroundStyle = publicationPreviewBackground(design.style);
+  const textAlign = design.style.align;
+  return (
+    <div className="rounded-[24px] border-2 border-[#e8e0d9] bg-[#f6f4f1] p-3 lg:p-5">
+      <div
+        className="relative mx-auto flex w-full max-w-[620px] overflow-hidden rounded-[18px] shadow-[0_18px_45px_rgba(0,0,0,.16)]"
+        style={{ aspectRatio: `${size.width} / ${size.height}`, ...backgroundStyle }}
+      >
+        <div className={`absolute inset-[3.8%] ${design.style.borderStyle === "thin" || design.style.borderStyle === "stamp" ? "border-2" : ""}`} style={{ borderColor: design.style.accentColor }} />
+        {design.style.borderStyle === "tape" && (
+          <>
+            <span className="absolute left-[8%] top-5 h-9 w-[22%] -rotate-3 bg-white/60" />
+            <span className="absolute bottom-5 right-[8%] h-9 w-[22%] rotate-3 bg-white/60" />
+          </>
+        )}
+        <Sticker style={design.style} />
+        <div className="relative z-10 flex h-full w-full flex-col" style={{ padding: `${Math.max(22, design.style.padding * 0.62)}px` }}>
+          <p
+            className="whitespace-pre-line font-black leading-tight"
+            style={{
+              color: design.style.textColor,
+              fontFamily: fontStacks[design.style.fontFamily],
+              fontSize: Math.max(18, Math.min(34, design.style.fontSize)),
+              lineHeight: design.style.lineHeight,
+              textAlign,
+            }}
+          >
+            {design.poemText}
+          </p>
+          <div className="mt-auto">
+            {design.style.showCredits && (
+              <p className="text-sm font-black" style={{ color: design.style.accentColor, textAlign }}>
+                By {design.authorName}{design.contributorNames.length > 1 ? ` / ${design.contributorNames.slice(1).join(" / ")}` : ""}
+              </p>
+            )}
+            {design.style.showTags && design.tags.length > 0 && (
+              <p className="mt-2 break-words font-mono text-[11px] font-black" style={{ color: design.style.textColor, textAlign }}>
+                {design.tags.slice(0, 5).join("  ")}
+              </p>
+            )}
+          </div>
+        </div>
+        {design.style.stamp !== "none" && (
+          <span
+            className="absolute bottom-[7%] right-[7%] -rotate-6 rounded border-2 px-4 py-2 font-mono text-xs font-black uppercase"
+            style={{ borderColor: design.style.accentColor, color: design.style.accentColor }}
+          >
+            {design.style.stamp}
+          </span>
+        )}
+      </div>
+      <div className="mt-3 flex flex-wrap items-center justify-center gap-2 text-xs font-black text-[#737783]">
+        <span>{size.label}</span>
+        <span>{design.mode === "template" ? "Template" : "Free Studio"}</span>
+        {design.locked && <span className="text-[#ff4b4f]">Locked</span>}
+      </div>
+    </div>
+  );
+}
+
+function StyleInspector({
+  design,
+  updateStyle,
+  setCanvasSize,
+}: {
+  design: PublicationDesign;
+  updateStyle: (patch: Partial<PublicationDesignStyle>) => void;
+  setCanvasSize: (size: CanvasSize) => void;
+}) {
+  const { style } = design;
+  return (
+    <aside className="order-3 rounded-[22px] border-2 border-[#e8e0d9] p-4">
+      <p className="font-mono text-xl font-black text-[#001eff]">Style inspector</p>
+      <div className="mt-4 grid gap-4">
+        <InspectorSelect label="Canvas" value={design.canvasSize} onChange={(value) => setCanvasSize(value as CanvasSize)} options={Object.entries(canvasSizeMeta).map(([value, meta]) => ({ value, label: meta.label }))} />
+        <InspectorSelect label="Font" value={style.fontFamily} onChange={(value) => updateStyle({ fontFamily: value as PublicationDesignStyle["fontFamily"] })} options={[
+          { value: "serif", label: "Serif" },
+          { value: "sans", label: "Sans" },
+          { value: "mono", label: "Mono" },
+          { value: "hand", label: "Hand" },
+        ]} />
+        <InspectorSelect label="Background paper" value={style.background} onChange={(value) => updateStyle({ background: value as PublicationDesignStyle["background"] })} options={[
+          { value: "paper", label: "Paper" },
+          { value: "notebook", label: "Notebook" },
+          { value: "rose", label: "Rose page" },
+          { value: "blueprint", label: "Blue grid" },
+          { value: "collage", label: "Collage" },
+          { value: "dark", label: "Dark" },
+        ]} />
+        <InspectorSelect label="Alignment" value={style.align} onChange={(value) => updateStyle({ align: value as PublicationDesignStyle["align"] })} options={[
+          { value: "left", label: "Left" },
+          { value: "center", label: "Center" },
+          { value: "right", label: "Right" },
+        ]} />
+        <InspectorSelect label="Sticker" value={style.sticker} onChange={(value) => updateStyle({ sticker: value as PublicationDesignStyle["sticker"] })} options={[
+          { value: "none", label: "None" },
+          { value: "moon", label: "Moon" },
+          { value: "star", label: "Star" },
+          { value: "tape", label: "Tape" },
+          { value: "flower", label: "Flower" },
+          { value: "clip", label: "Clip" },
+        ]} />
+        <InspectorSelect label="Stamp" value={style.stamp} onChange={(value) => updateStyle({ stamp: value as PublicationDesignStyle["stamp"] })} options={[
+          { value: "none", label: "None" },
+          { value: "draft", label: "Draft" },
+          { value: "locked", label: "Locked" },
+          { value: "collective", label: "Collective" },
+          { value: "fragment", label: "Fragment" },
+        ]} />
+        <RangeControl label="Font size" value={style.fontSize} min={18} max={42} onChange={(value) => updateStyle({ fontSize: value })} />
+        <RangeControl label="Line height" value={Math.round(style.lineHeight * 100)} min={110} max={170} onChange={(value) => updateStyle({ lineHeight: value / 100 })} />
+        <RangeControl label="Padding" value={style.padding} min={30} max={76} onChange={(value) => updateStyle({ padding: value })} />
+        <div className="grid grid-cols-3 gap-2">
+          <ColorControl label="Text" value={style.textColor} onChange={(value) => updateStyle({ textColor: value })} />
+          <ColorControl label="Accent" value={style.accentColor} onChange={(value) => updateStyle({ accentColor: value })} />
+          <ColorControl label="Paper" value={style.paperTone} onChange={(value) => updateStyle({ paperTone: value })} />
+        </div>
+        <label className="flex items-center justify-between gap-3 rounded-[16px] bg-[#eef0ff] px-4 py-3 text-sm font-black text-[#001eff]">
+          Credits
+          <input type="checkbox" checked={style.showCredits} onChange={(event) => updateStyle({ showCredits: event.target.checked })} />
+        </label>
+        <label className="flex items-center justify-between gap-3 rounded-[16px] bg-[#eef0ff] px-4 py-3 text-sm font-black text-[#001eff]">
+          Tags
+          <input type="checkbox" checked={style.showTags} onChange={(event) => updateStyle({ showTags: event.target.checked })} />
+        </label>
+      </div>
+    </aside>
+  );
+}
+
+function InspectorSelect({ label, value, options, onChange }: { label: string; value: string; options: { value: string; label: string }[]; onChange: (value: string) => void }) {
+  return (
+    <label className="block text-xs font-black uppercase text-[#737783]">
+      {label}
+      <select value={value} onChange={(event) => onChange(event.target.value)} className="mt-1 h-11 w-full rounded-[14px] border-2 border-[#e8e0d9] bg-white px-3 text-sm font-black normal-case text-[#111] outline-none focus:border-[#001eff]">
+        {options.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+      </select>
+    </label>
+  );
+}
+
+function RangeControl({ label, value, min, max, onChange }: { label: string; value: number; min: number; max: number; onChange: (value: number) => void }) {
+  return (
+    <label className="block text-xs font-black uppercase text-[#737783]">
+      <span className="flex items-center justify-between"><span>{label}</span><span>{value}</span></span>
+      <input type="range" min={min} max={max} value={value} onChange={(event) => onChange(Number(event.target.value))} className="mt-2 w-full accent-[#001eff]" />
+    </label>
+  );
+}
+
+function ColorControl({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {
+  return (
+    <label className="grid gap-1 text-center text-[11px] font-black uppercase text-[#737783]">
+      <input type="color" value={value} onChange={(event) => onChange(event.target.value)} className="h-10 w-full cursor-pointer rounded border-0 bg-transparent p-0" />
+      {label}
+    </label>
+  );
+}
+
+function Sticker({ style }: { style: PublicationDesignStyle }) {
+  if (style.sticker === "none") return null;
+  if (style.sticker === "moon") return <span className="absolute right-[7%] top-[7%] h-16 w-16 rounded-full" style={{ background: style.accentColor, boxShadow: `18px -8px 0 ${style.paperTone}` }} />;
+  if (style.sticker === "star") return <span className="absolute right-[7%] top-[7%] text-6xl font-black leading-none" style={{ color: style.accentColor }}>*</span>;
+  if (style.sticker === "flower") {
+    return (
+      <span className="absolute right-[7%] top-[8%] grid h-20 w-20 place-items-center">
+        {[0, 1, 2, 3, 4, 5].map((index) => (
+          <span key={index} className="absolute h-8 w-8 rounded-full" style={{ background: style.accentColor, transform: `rotate(${index * 60}deg) translateY(-22px)` }} />
+        ))}
+        <span className="relative h-8 w-8 rounded-full" style={{ background: style.paperTone }} />
+      </span>
+    );
+  }
+  if (style.sticker === "clip") return <span className="absolute right-[8%] top-[8%] h-20 w-12 rounded-full border-[6px]" style={{ borderColor: style.accentColor }} />;
+  return <span className="absolute right-[8%] top-[8%] h-10 w-32 -rotate-6 bg-white/60" />;
+}
+
+function publicationPreviewBackground(style: PublicationDesignStyle): CSSProperties {
+  if (style.background === "blueprint") {
+    return {
+      backgroundColor: style.paperTone,
+      backgroundImage: "linear-gradient(rgba(255,255,255,.17) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.17) 1px, transparent 1px)",
+      backgroundSize: "42px 42px",
+    };
+  }
+  if (style.background === "notebook") {
+    return {
+      backgroundColor: style.paperTone,
+      backgroundImage: "linear-gradient(rgba(0,30,255,.18) 1px, transparent 1px), linear-gradient(90deg, transparent 72px, rgba(255,75,79,.4) 72px, rgba(255,75,79,.4) 74px, transparent 74px)",
+      backgroundSize: "100% 34px, 100% 100%",
+    };
+  }
+  if (style.background === "collage") {
+    return {
+      backgroundColor: style.paperTone,
+      backgroundImage: "linear-gradient(135deg, rgba(255,255,255,.82) 0 38%, transparent 38%), linear-gradient(25deg, transparent 0 54%, rgba(255,75,79,.9) 54% 72%, transparent 72%)",
+    };
+  }
+  if (style.background === "dark") {
+    return { background: "linear-gradient(135deg, #17171b, #00115c)" };
+  }
+  if (style.background === "rose") {
+    return { background: `linear-gradient(135deg, ${style.paperTone}, #ffffff)` };
+  }
+  return {
+    backgroundColor: style.paperTone,
+    backgroundImage: "radial-gradient(rgba(0,0,0,.05) 1px, transparent 1px)",
+    backgroundSize: "22px 22px",
+  };
+}
+
 function CreatePage(props: {
   draft: string;
   setDraft: (value: string) => void;
@@ -1795,14 +2696,66 @@ function CreatePage(props: {
   setBackgroundImage: (value: string) => void;
   settings: CreateSettings;
   setSettings: (settings: CreateSettings) => void;
+  spaces: Space[];
   publishPost: (event: FormEvent) => void;
   creationKind: CreationKind;
   setCreationKind: (kind: CreationKind) => void;
   createMode: CollaborationMode;
   setCreateMode: (mode: CollaborationMode) => void;
+  publicationTemplates: DesignTemplate[];
+  onSaveDesign: (design: PublicationDesign) => void;
+  onLockDesign: (design: PublicationDesign) => void;
+  onExportDesign: (design: PublicationDesign, type: ExportRecord["type"], filename: string) => void;
 }) {
-  const { draft, setDraft, createTags, setCreateTags, tagDraft, setTagDraft, backgroundImage, setBackgroundImage, settings, setSettings, publishPost, creationKind, setCreationKind, createMode, setCreateMode } = props;
-  const update = (key: keyof CreateSettings) => setSettings({ ...settings, [key]: !settings[key] });
+  const { draft, setDraft, createTags, setCreateTags, tagDraft, setTagDraft, backgroundImage, setBackgroundImage, settings, setSettings, spaces, publishPost, creationKind, setCreationKind, createMode, setCreateMode, publicationTemplates, onSaveDesign, onLockDesign, onExportDesign } = props;
+  const ownGroups = spaces.filter((space) => space.members.some((member) => member.userId === currentUser.id));
+  const allUsers = Object.values(authors).filter((author) => author.id !== currentUser.id);
+  const visibilityOptions: { value: VisibilityMode; label: string; description: string }[] = [
+    { value: "public", label: "Public", description: "Visible to the public feed." },
+    { value: "private", label: "Private", description: "Only saved in your own workspace." },
+    { value: "group", label: "Group", description: "Visible inside one selected group." },
+    { value: "include_people", label: "Specific people", description: "Only selected people can see it." },
+    { value: "exclude_people", label: "Hide from people", description: "Public or group-like, except selected people." },
+  ];
+  const attributionOptions: { value: AttributionMode; label: string; description: string }[] = [
+    { value: "named", label: "Use my name", description: "Publish as your profile identity." },
+    { value: "anonymous", label: "Anonymous", description: "Hide your public identity on this work." },
+    { value: "pen_name", label: "Pen name", description: "Publish with a new displayed byline." },
+  ];
+  const setVisibilityMode = (visibilityMode: VisibilityMode) => {
+    setSettings({
+      ...settings,
+      visibilityMode,
+      publicPost: visibilityMode === "public" || visibilityMode === "exclude_people",
+      selectedGroupId: visibilityMode === "group" ? settings.selectedGroupId ?? ownGroups[0]?.id : settings.selectedGroupId,
+    });
+  };
+  const toggleUser = (key: "visibleUserIds" | "hiddenUserIds" | "coAuthorIds", userId: string) => {
+    const values = settings[key];
+    setSettings({
+      ...settings,
+      [key]: values.includes(userId) ? values.filter((id) => id !== userId) : [...values, userId],
+    });
+  };
+  const personPicker = (key: "visibleUserIds" | "hiddenUserIds" | "coAuthorIds") => (
+    <div className="mt-3 grid gap-2 sm:grid-cols-2">
+      {allUsers.map((author) => {
+        const active = settings[key].includes(author.id);
+        return (
+          <button key={author.id} type="button" onClick={() => toggleUser(key, author.id)} className={`flex items-center gap-3 rounded-[16px] border-2 p-3 text-left ${active ? "border-[#001eff] bg-[#eef0ff]" : "border-[#e8e0d9] bg-white"}`}>
+            <Avatar author={author} muted={!active} />
+            <span className="min-w-0">
+              <span className="block truncate text-sm font-black">{author.name}</span>
+              <span className="block truncate text-xs font-bold text-[#737783]">{author.handle}</span>
+            </span>
+            <span className={`ml-auto grid h-4 w-4 shrink-0 place-items-center rounded border border-[#001eff] ${active ? "bg-[#001eff]" : "bg-white"}`}>
+              {active && <Check size={12} className="text-white" />}
+            </span>
+          </button>
+        );
+      })}
+    </div>
+  );
   const normalizeTag = (value: string) => {
     const cleaned = value.trim().replace(/\s+/g, "_");
     if (!cleaned) return "";
@@ -1821,14 +2774,18 @@ function CreatePage(props: {
     reader.onload = () => setBackgroundImage(String(reader.result));
     reader.readAsDataURL(file);
   };
-  const row = (key: keyof CreateSettings, label: string) => (
-    <button type="button" onClick={() => update(key)} className="flex h-[48px] items-center justify-between rounded-xl border border-[#ded7cd] px-3 text-left text-[16px] font-bold lg:text-[18px]">
-      {label}
-      <span className={`grid h-4 w-4 place-items-center rounded border border-[#001eff] ${settings[key] ? "bg-[#001eff]" : "bg-white"}`}>
-        {settings[key] && <Check size={12} className="text-white" />}
-      </span>
-    </button>
-  );
+  const toggleContract = (key: "allowComments" | "allowForward") => setSettings({ ...settings, [key]: !settings[key] });
+  const packageAuthorName = settings.attributionMode === "anonymous"
+    ? "Anonymous poet"
+    : settings.attributionMode === "pen_name" && settings.penName.trim()
+      ? settings.penName.trim()
+      : currentUser.name;
+  const packageContributors = Array.from(new Set([
+    packageAuthorName,
+    ...settings.coAuthorIds
+      .map((id) => Object.values(authors).find((author) => author.id === id)?.name)
+      .filter((name): name is string => Boolean(name)),
+  ]));
   return (
     <form onSubmit={publishPost} className="max-w-[1074px] pt-1">
       <h1 className="font-mono text-[36px] font-black leading-none text-[#001eff] lg:text-[38px]">Create / Start</h1>
@@ -1893,23 +2850,90 @@ function CreatePage(props: {
         )}
         <input type="file" accept="image/*,.gif" className="hidden" onChange={(event) => uploadBackground(event.target.files?.[0])} />
       </label>
-      <div className="mt-7 grid gap-4 sm:grid-cols-2">
-        <button type="button" onClick={() => setSettings({ ...settings, publicPost: false })} className={`h-[66px] rounded-xl border text-[24px] font-black lg:text-[27px] ${!settings.publicPost ? "border-[#ff414f] bg-[#fff4f6] text-[#222]" : "border-[#bdbdbd] text-[#888]"}`}>Private / Limited</button>
-        <button type="button" onClick={() => setSettings({ ...settings, publicPost: true })} className={`h-[66px] rounded-xl border text-[24px] font-black lg:text-[27px] ${settings.publicPost ? "border-[#001eff] bg-[#eef0ff] text-black" : "border-[#bdbdbd] text-[#888]"}`}>Public Post</button>
-      </div>
-      <div className="mt-7 grid gap-4 sm:grid-cols-2">
-        {row("allowComments", "Allow comments")}
-        {settings.publicPost && row("allowReplies", "Allow replies")}
-        {row("allowQuote", "Allow quote / branch")}
-        {settings.publicPost && row("allowBuild", "Allow others to build")}
-        {row("showHistory", "Show history")}
-        {!settings.publicPost && row("allowLike", "Allow like")}
-      </div>
+      {draft.trim().length > 0 && (
+        <PublicationStudio
+          poemText={draft}
+          authorName={packageAuthorName}
+          contributorNames={packageContributors}
+          tags={createTags}
+          templates={publicationTemplates}
+          onSaveDesign={onSaveDesign}
+          onLockDesign={onLockDesign}
+          onExportDesign={onExportDesign}
+        />
+      )}
+      <section className="mt-7 rounded-[24px] border-2 border-[#e8e0d9] p-5">
+        <p className="font-mono text-xl font-black text-[#001eff]">Visibility</p>
+        <div className="mt-4 grid gap-3 md:grid-cols-5">
+          {visibilityOptions.map((option) => (
+            <button key={option.value} type="button" onClick={() => setVisibilityMode(option.value)} className={`min-h-[92px] rounded-[16px] border-2 p-3 text-left ${settings.visibilityMode === option.value ? "border-[#001eff] bg-[#eef0ff] text-[#001eff]" : "border-[#ded7cd] text-[#444]"}`}>
+              <span className="block text-sm font-black">{option.label}</span>
+              <span className="mt-1 block text-xs font-bold text-[#737783]">{option.description}</span>
+            </button>
+          ))}
+        </div>
+        {settings.visibilityMode === "group" && (
+          <div className="mt-4 rounded-[18px] bg-[#eef0ff] p-4">
+            <label className="text-sm font-black text-[#001eff]">Choose group</label>
+            <select value={settings.selectedGroupId ?? ownGroups[0]?.id ?? ""} onChange={(event) => setSettings({ ...settings, selectedGroupId: event.target.value })} className="mt-2 h-12 w-full rounded-[14px] border-2 border-white bg-white px-4 font-bold outline-none focus:border-[#001eff]">
+              {ownGroups.map((space) => <option key={space.id} value={space.id}>{space.name}</option>)}
+            </select>
+          </div>
+        )}
+        {settings.visibilityMode === "include_people" && (
+          <div className="mt-4 rounded-[18px] bg-[#fafafa] p-4">
+            <p className="text-sm font-black text-[#001eff]">Visible to selected people</p>
+            {personPicker("visibleUserIds")}
+          </div>
+        )}
+        {settings.visibilityMode === "exclude_people" && (
+          <div className="mt-4 rounded-[18px] bg-[#fafafa] p-4">
+            <p className="text-sm font-black text-[#001eff]">Invisible to selected people</p>
+            {personPicker("hiddenUserIds")}
+          </div>
+        )}
+      </section>
+
+      <section className="mt-5 grid gap-5 lg:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)]">
+        <div className="rounded-[24px] border-2 border-[#e8e0d9] p-5">
+          <p className="font-mono text-xl font-black text-[#001eff]">Feedback contract</p>
+          <div className="mt-4 grid gap-3">
+            <button type="button" onClick={() => toggleContract("allowComments")} className={`flex min-h-[70px] items-center justify-between rounded-[16px] border-2 px-4 py-3 text-left ${settings.allowComments ? "border-[#001eff] bg-[#eef0ff]" : "border-[#ded7cd]"}`}>
+              <span><span className="block font-black">Allow comments</span><span className="mt-1 block text-xs font-bold text-[#737783]">Readers can respond; AI can organize feedback.</span></span>
+              <span className={`grid h-5 w-5 place-items-center rounded border border-[#001eff] ${settings.allowComments ? "bg-[#001eff]" : "bg-white"}`}>{settings.allowComments && <Check size={14} className="text-white" />}</span>
+            </button>
+            <button type="button" onClick={() => toggleContract("allowForward")} className={`flex min-h-[70px] items-center justify-between rounded-[16px] border-2 px-4 py-3 text-left ${settings.allowForward ? "border-[#001eff] bg-[#eef0ff]" : "border-[#ded7cd]"}`}>
+              <span><span className="block font-black">Allow forwarding / branch</span><span className="mt-1 block text-xs font-bold text-[#737783]">Others may forward, quote, or build from this work.</span></span>
+              <span className={`grid h-5 w-5 place-items-center rounded border border-[#001eff] ${settings.allowForward ? "bg-[#001eff]" : "bg-white"}`}>{settings.allowForward && <Check size={14} className="text-white" />}</span>
+            </button>
+          </div>
+        </div>
+
+        <div className="rounded-[24px] border-2 border-[#e8e0d9] p-5">
+          <p className="font-mono text-xl font-black text-[#001eff]">Attribution policy</p>
+          <div className="mt-4 grid gap-3 sm:grid-cols-3">
+            {attributionOptions.map((option) => (
+              <button key={option.value} type="button" onClick={() => setSettings({ ...settings, attributionMode: option.value })} className={`min-h-[86px] rounded-[16px] border-2 p-3 text-left ${settings.attributionMode === option.value ? "border-[#001eff] bg-[#eef0ff] text-[#001eff]" : "border-[#ded7cd] text-[#444]"}`}>
+                <span className="block text-sm font-black">{option.label}</span>
+                <span className="mt-1 block text-xs font-bold text-[#737783]">{option.description}</span>
+              </button>
+            ))}
+          </div>
+          {settings.attributionMode === "pen_name" && (
+            <input value={settings.penName} onChange={(event) => setSettings({ ...settings, penName: event.target.value })} className="mt-4 h-12 w-full rounded-[14px] border-2 border-[#e8e0d9] px-4 font-bold outline-none focus:border-[#001eff]" placeholder="Enter pen name" />
+          )}
+          <div className="mt-4 rounded-[18px] bg-[#fafafa] p-4">
+            <p className="text-sm font-black text-[#001eff]">Co-authors / multi-signature</p>
+            <p className="mt-1 text-xs font-bold text-[#737783]">Selected people will be stored as co-authors for this version.</p>
+            {personPicker("coAuthorIds")}
+          </div>
+        </div>
+      </section>
       <p className="mt-6 rounded-2xl bg-[#eef0ff] px-5 py-4 text-base font-black text-[#001eff]">
-        You decide what enters the poem. Comments and AI suggestions stay outside the poem until accepted or locked.
+        Visibility controls who can see it. Feedback controls what others can do. Attribution controls how the byline appears when this becomes a locked version.
       </p>
       <button className="mt-8 h-[58px] w-full rounded-2xl bg-[#f43f5e] text-[28px] font-black text-white lg:text-[32px]">
-        {creationKind === "Private fragment" ? "Save Fragment" : settings.publicPost ? "Publish / Start" : "Save Draft"}
+        {creationKind === "Private fragment" ? "Save Fragment" : settings.visibilityMode === "private" ? "Save Draft" : "Publish / Start"}
       </button>
     </form>
   );
@@ -2228,6 +3252,8 @@ function DetailPage(props: {
   space?: Space;
   channel?: Channel;
   sourceFragment?: Fragment;
+  publicationDesign?: PublicationDesign;
+  publicationTemplates: DesignTemplate[];
   openContext: () => void;
   setCommentDraft: (value: string) => void;
   setTurnDraft: (value: string) => void;
@@ -2243,6 +3269,9 @@ function DetailPage(props: {
   lockVersion: (postId: string) => void;
   lockLine: (postId: string, lineId: string) => void;
   saveAuthorVersion: (postId: string, lines: EditablePoemLine[]) => void;
+  onSaveDesign: (design: PublicationDesign) => void;
+  onLockDesign: (design: PublicationDesign) => void;
+  onExportDesign: (design: PublicationDesign, type: ExportRecord["type"], filename: string) => void;
   openHistory: (id: string) => void;
   navigate: (view: View) => void;
 } & SearchProps) {
@@ -2258,6 +3287,8 @@ function DetailPage(props: {
     space,
     channel,
     sourceFragment,
+    publicationDesign,
+    publicationTemplates,
     openContext,
     setCommentDraft,
     setTurnDraft,
@@ -2273,6 +3304,9 @@ function DetailPage(props: {
     lockVersion,
     lockLine,
     saveAuthorVersion,
+    onSaveDesign,
+    onLockDesign,
+    onExportDesign,
     openHistory,
     navigate,
     searchInput,
@@ -2280,6 +3314,32 @@ function DetailPage(props: {
     runSearch,
   } = props;
   const locked = post.lockState.status === "locked" || post.lockState.status === "published";
+  const [showPublicationStudio, setShowPublicationStudio] = useState(false);
+  const canPackage = locked || post.stage === "Final Version";
+  const detailPoemText = poemLines.length > 0 ? poemLines.map((line) => line.text).join("\n") : post.lines.join("\n");
+  const detailContributorNames = Array.from(new Set([
+    post.attributionName ?? post.author.name,
+    ...post.authorIds
+      .map((id) => Object.values(authors).find((author) => author.id === id)?.name)
+      .filter((name): name is string => Boolean(name)),
+  ]));
+  const ensurePublicationDesign = () => {
+    const next = publicationDesign ?? makePublicationDesign({
+      workId: post.id,
+      poemText: detailPoemText,
+      authorName: post.attributionName ?? post.author.name,
+      contributorNames: detailContributorNames,
+      tags: post.tags,
+      template: publicationTemplates[0],
+    });
+    if (!publicationDesign) onSaveDesign(next);
+    return next;
+  };
+  const exportDetailDesign = async (type: ExportRecord["type"]) => {
+    const target = ensurePublicationDesign();
+    const filename = type === "jpg" ? await publicationExportService.exportJpg(target) : await publicationExportService.exportPdf(target);
+    onExportDesign(target, type, filename);
+  };
   return (
     <div>
       <BrandBar showSearch navigate={navigate} searchInput={searchInput} setSearchInput={setSearchInput} runSearch={runSearch} />
@@ -2296,6 +3356,17 @@ function DetailPage(props: {
             <button type="button" onClick={() => lockVersion(post.id)} disabled={locked} className="rounded-full bg-[#001eff] px-5 py-2 text-left font-black text-white disabled:bg-[#aeb2d3]">
               {locked ? "Version locked" : "Lock version"}
             </button>
+            {canPackage && (
+              <div className="grid gap-2 rounded-[18px] bg-[#eef0ff] p-3">
+                <button type="button" onClick={() => setShowPublicationStudio((open) => !open)} className="rounded-full bg-[#ff4b4f] px-5 py-2 text-left font-black text-white">
+                  {showPublicationStudio ? "Close Publication Studio" : "Open Publication Studio"}
+                </button>
+                <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-1">
+                  <button type="button" onClick={() => exportDetailDesign("jpg")} className="rounded-full border-2 border-[#001eff] px-4 py-2 text-sm font-black text-[#001eff]">Export JPG</button>
+                  <button type="button" onClick={() => exportDetailDesign("pdf")} className="rounded-full border-2 border-black px-4 py-2 text-sm font-black text-black">Export PDF</button>
+                </div>
+              </div>
+            )}
           </div>
           {(space || channel || sourceFragment) && <OriginPanel post={post} space={space} channel={channel} sourceFragment={sourceFragment} openContext={openContext} />}
         </section>
@@ -2345,6 +3416,20 @@ function DetailPage(props: {
           secondaryAction="View history"
           onPrimary={(nextLines) => saveAuthorVersion(post.id, nextLines)}
           onSecondary={() => openHistory(post.id)}
+        />
+      )}
+      {showPublicationStudio && (
+        <PublicationStudio
+          workId={post.id}
+          poemText={detailPoemText}
+          authorName={post.attributionName ?? post.author.name}
+          contributorNames={detailContributorNames}
+          tags={post.tags}
+          templates={publicationTemplates}
+          initialDesign={publicationDesign}
+          onSaveDesign={onSaveDesign}
+          onLockDesign={onLockDesign}
+          onExportDesign={onExportDesign}
         />
       )}
     </div>
@@ -2685,6 +3770,8 @@ function ProfilePage({
   posts,
   fragments,
   contributions,
+  publicationDesigns,
+  exportRecords,
   tab,
   setTab,
   openPost,
@@ -2699,6 +3786,8 @@ function ProfilePage({
   posts: Post[];
   fragments: Fragment[];
   contributions: Contribution[];
+  publicationDesigns: PublicationDesign[];
+  exportRecords: ExportRecord[];
   tab: string;
   setTab: (tab: string) => void;
   openPost: (id: string) => void;
@@ -2743,6 +3832,18 @@ function ProfilePage({
             </article>
           ))}
         </div>
+      ) : tab === "Final Versions" ? (
+        <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
+          {filtered.slice(0, 8).map((post) => {
+            const design = publicationDesigns.find((item) => item.id === post.publicationDesignId || item.workId === post.id);
+            const exportCount = design ? exportRecords.filter((record) => record.designId === design.id).length : 0;
+            return design ? (
+              <PackagedPreviewCard key={post.id} post={post} design={design} exportCount={exportCount} openPost={openPost} />
+            ) : (
+              <PoemCard key={post.id} post={post} openPost={openPost} openQuote={openQuote} toggleLike={toggleLike} toggleSave={toggleSave} compact />
+            );
+          })}
+        </div>
       ) : (
         <MasonryGrid posts={filtered.slice(0, 8)} openPost={openPost} openQuote={openQuote} toggleLike={toggleLike} toggleSave={toggleSave} compact />
       )}
@@ -2766,6 +3867,38 @@ function ProfileHeader() {
         <ProfileStat value="10" label="works" />
       </div>
     </header>
+  );
+}
+
+function PackagedPreviewCard({ post, design, exportCount, openPost }: { post: Post; design: PublicationDesign; exportCount: number; openPost: (id: string) => void }) {
+  return (
+    <article className="overflow-hidden rounded-[28px] border-2 border-[#001eff] bg-white">
+      <button type="button" onClick={() => openPost(post.id)} className="block w-full p-4 text-left">
+        <PublicationMiniPreview design={design} />
+        <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <p className="text-lg font-black text-[#001eff]">{design.title}</p>
+            <p className="mt-1 text-xs font-bold text-[#737783]">{design.locked ? "Locked package" : "Design draft"} / {canvasSizeMeta[design.canvasSize].label}</p>
+          </div>
+          <span className="rounded-full bg-[#ff4b4f] px-3 py-1 text-xs font-black text-white">{exportCount} exports</span>
+        </div>
+      </button>
+    </article>
+  );
+}
+
+function PublicationMiniPreview({ design }: { design: PublicationDesign }) {
+  const size = canvasSizeMeta[design.canvasSize];
+  return (
+    <div className="relative overflow-hidden rounded-[18px] border-2 border-[#e8e0d9]" style={{ aspectRatio: `${size.width} / ${size.height}`, ...publicationPreviewBackground(design.style) }}>
+      <div className="absolute inset-4 flex flex-col">
+        <p className="line-clamp-6 whitespace-pre-line font-black leading-tight" style={{ color: design.style.textColor, fontFamily: fontStacks[design.style.fontFamily], fontSize: 18, textAlign: design.style.align }}>
+          {design.poemText}
+        </p>
+        {design.style.showCredits && <p className="mt-auto text-xs font-black" style={{ color: design.style.accentColor, textAlign: design.style.align }}>By {design.authorName}</p>}
+      </div>
+      <Sticker style={design.style} />
+    </div>
   );
 }
 
@@ -2899,9 +4032,18 @@ function ActionButton({ children, icon, onClick, active = false, danger = false,
   );
 }
 
-function FragmentCard({ fragment, fragmentAction }: { fragment: Fragment; fragmentAction: (fragmentId: string, action: FragmentActionName) => void }) {
+function FragmentCard({ fragment, fragmentAction }: { fragment: Fragment; fragmentAction: (fragmentId: string, action: FragmentActionName, targetUserId?: string) => void }) {
   const saved = fragment.savedBy.includes(currentUser.id);
-  const invited = fragment.invitedBy.includes(currentUser.id);
+  const [inviteOpen, setInviteOpen] = useState(false);
+  const [inviteQuery, setInviteQuery] = useState("");
+  const invitedUsers = new Set(fragment.invitedUserIds ?? []);
+  const invitedByMe = fragment.invitedBy.includes(currentUser.id);
+  const searchableUsers = Object.values(authors).filter((author) => {
+    const query = inviteQuery.trim().toLowerCase();
+    if (author.id === currentUser.id) return false;
+    if (!query) return true;
+    return `${author.name} ${author.handle}`.toLowerCase().includes(query);
+  });
   return (
     <article className="rounded-[28px] border-2 border-[#001eff] bg-white p-5">
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
@@ -2920,8 +4062,8 @@ function FragmentCard({ fragment, fragmentAction }: { fragment: Fragment; fragme
         <button type="button" onClick={() => fragmentAction(fragment.id, "save")} className={`rounded-full px-4 py-2 text-sm font-black ${saved ? "bg-[#001eff] text-white" : "bg-[#eef0ff] text-[#001eff]"}`}>
           <Bookmark size={14} className="mr-1 inline" /> {saved ? "Saved" : "Save"}
         </button>
-        <button type="button" disabled={!fragment.allowInvite} onClick={() => fragmentAction(fragment.id, "invite")} className="rounded-full bg-[#eef0ff] px-4 py-2 text-sm font-black text-[#001eff] disabled:opacity-35">
-          {invited ? "Invited" : "Invite creator"}
+        <button type="button" disabled={!fragment.allowInvite} onClick={() => setInviteOpen((open) => !open)} className="rounded-full bg-[#eef0ff] px-4 py-2 text-sm font-black text-[#001eff] disabled:opacity-35">
+          {invitedByMe ? `Invite (${invitedUsers.size})` : "Invite"}
         </button>
         <button type="button" onClick={() => fragmentAction(fragment.id, "chat")} className="rounded-full border-2 border-[#001eff] px-4 py-2 text-sm font-black text-[#001eff]">
           Start chat
@@ -2933,6 +4075,42 @@ function FragmentCard({ fragment, fragmentAction }: { fragment: Fragment; fragme
           Branch alone
         </button>
       </div>
+      {inviteOpen && (
+        <div className="mt-4 rounded-[18px] border-2 border-[#e8e0d9] bg-[#fafafa] p-3">
+          <input
+            value={inviteQuery}
+            onChange={(event) => setInviteQuery(event.target.value)}
+            className="h-11 w-full rounded-full border-2 border-[#e8e0d9] bg-white px-4 text-sm font-bold outline-none focus:border-[#001eff]"
+            placeholder="Search people by name or @handle"
+          />
+          <div className="mt-3 grid max-h-[220px] gap-2 overflow-y-auto">
+            {searchableUsers.map((author) => {
+              const selected = invitedUsers.has(author.id);
+              return (
+                <button
+                  key={author.id}
+                  type="button"
+                  onClick={() => {
+                    fragmentAction(fragment.id, "invite", author.id);
+                    setInviteQuery("");
+                  }}
+                  className={`flex items-center justify-between gap-3 rounded-[14px] px-3 py-2 text-left ${selected ? "bg-[#001eff] text-white" : "bg-white text-[#111]"}`}
+                >
+                  <span className="flex min-w-0 items-center gap-3">
+                    <Avatar author={author} muted={!selected} />
+                    <span className="min-w-0">
+                      <span className="block truncate text-sm font-black">{author.name}</span>
+                      <span className={`block truncate text-xs font-bold ${selected ? "text-white/75" : "text-[#737783]"}`}>{author.handle}</span>
+                    </span>
+                  </span>
+                  <span className="shrink-0 text-xs font-black">{selected ? "Invited" : "Invite"}</span>
+                </button>
+              );
+            })}
+            {searchableUsers.length === 0 && <p className="px-2 py-3 text-sm font-bold text-[#737783]">No matching users.</p>}
+          </div>
+        </div>
+      )}
     </article>
   );
 }
@@ -3112,7 +4290,10 @@ function StatusPills({ post }: { post: Post }) {
       <BlueChip>{post.mode === "turn_taking" ? "Turn-taking" : "Facilitated"}</BlueChip>
       <BlueChip>{visibilityLabel(post.visibility)}</BlueChip>
       <BlueChip>{post.lockState.status}</BlueChip>
-      <BlueChip>{post.attributionPolicy.defaultStyle.split("_").join(" ")}</BlueChip>
+      <BlueChip>{post.anonymous ? "anonymous" : post.attributionName ? `by ${post.attributionName}` : post.attributionPolicy.defaultStyle.split("_").join(" ")}</BlueChip>
+      {post.coAuthorIds && post.coAuthorIds.length > 0 && <BlueChip>{post.coAuthorIds.length + 1} signatures</BlueChip>}
+      {post.visibleUserIds && post.visibleUserIds.length > 0 && <BlueChip>{post.visibleUserIds.length} visible people</BlueChip>}
+      {post.hiddenUserIds && post.hiddenUserIds.length > 0 && <BlueChip>{post.hiddenUserIds.length} hidden people</BlueChip>}
     </div>
   );
 }

@@ -787,7 +787,7 @@ type View =
 
 选项：
 
-- `Private fragment`
+- `fragment`
 - `Feedback-supported draft`
 - `Group post`
 - `Challenge response`
@@ -799,13 +799,13 @@ type View =
 - `Facilitated Writing`
 - `Co-creative Turn-taking`
 
-新增第三步：设置契约。
+新增第三步：
+设置契约。
+- visibility：public/private/选择自己所在的组group/选择具体可见的人/选择具体不可见的人
+- feedback contract ：可设置是否允许：转发 / 评论 /
+- attribution policy：选择匿名/非匿名/或者输入新的笔名；另外需要支持多人署名
 
-- visibility
-- feedback contract
-- attribution policy
-- lock rules
-- allowed media: image / GIF
+
 
 ### 12.4 Detail / Workbench 页面
 
