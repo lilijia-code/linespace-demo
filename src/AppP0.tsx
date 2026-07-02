@@ -45,6 +45,7 @@ import type {
   CanvasSize,
   Channel,
   CollaborationMode,
+  CoCreativePattern,
   Comment,
   Contribution,
   CreateSettings,
@@ -74,7 +75,7 @@ import type {
 
 type SpacesTab = "Groups" | "Challenges" | "Fragments" | "Map";
 type FragmentActionName = "save" | "invite" | "chat" | "thread" | "branch";
-type ChallengeStartMode = "chat" | "relay";
+type ChallengeStartMode = "author_led" | "co_writing" | "relay";
 type TopicComposerMode = GroupTopicType;
 
 const navItems: { label: string; view: View }[] = [
@@ -85,13 +86,45 @@ const navItems: { label: string; view: View }[] = [
   { label: "Profile", view: "profile" },
 ];
 
-const creationKinds: CreationKind[] = [
-  "Private fragment",
-  "Feedback-supported draft",
-  "Group post",
-  "Challenge response",
-  "Turn-taking thread",
-  "Final version",
+const createIntentCards: {
+  kind: CreationKind;
+  title: string;
+  description: string;
+  collaborationMode: CollaborationMode;
+  pattern?: CoCreativePattern;
+  badge: string;
+}[] = [
+  { kind: "Fragment", title: "Fragment", description: "Save a line, image, or spark before it becomes social.", collaborationMode: "facilitated", badge: "Private first" },
+  { kind: "Draft for feedback", title: "Draft for feedback", description: "Ask readers for comments, close reading, and possible lines.", collaborationMode: "facilitated", badge: "Author-led" },
+  { kind: "Group discussion", title: "Group discussion", description: "Bring a draft or topic into a trusted group conversation.", collaborationMode: "facilitated", badge: "Author-led" },
+  { kind: "Challenge response", title: "Challenge response", description: "Respond to a prompt alone or open it into co-writing.", collaborationMode: "facilitated", badge: "Choose path" },
+  { kind: "Co-writing room", title: "Co-writing room", description: "Collect candidate lines, pinned ideas, and shared decisions.", collaborationMode: "co_creative", pattern: "host_curated", badge: "Co-writing" },
+  { kind: "Relay thread", title: "Relay thread", description: "Use turn order when each participant adds a line or stanza.", collaborationMode: "co_creative", pattern: "turn_taking_relay", badge: "Relay" },
+  { kind: "Final version", title: "Final version", description: "Lock, package, and publish a finished form.", collaborationMode: "facilitated", badge: "Lock & export" },
+];
+
+const coCreativePatternOptions: { value: CoCreativePattern; label: string; description: string }[] = [
+  { value: "group_chat_brainstorm", label: "Group brainstorm", description: "Nonlinear chat, pinned ideas, host decides what enters the poem." },
+  { value: "host_curated", label: "Host curated", description: "People submit candidate lines or structures; host accepts with credit." },
+  { value: "shared_editing", label: "Shared edit", description: "A small co-author group edits the same version with visible history." },
+  { value: "turn_taking_relay", label: "Relay", description: "A visible queue controls who adds the next line." },
+  { value: "parallel_branch_merge", label: "Branch merge", description: "Several branches develop in parallel, then selected pieces merge." },
+];
+
+const facilitatedParticipation = [
+  "Comments",
+  "Close reading",
+  "Revision suggestions",
+  "Possible lines",
+  "Invite to co-write",
+];
+
+const coCreativeParticipation = [
+  "Submit candidate lines",
+  "Edit shared text",
+  "Add turn",
+  "Vote / consent",
+  "Lock rule",
 ];
 
 const topicModes: { value: TopicComposerMode; label: string; hint: string }[] = [
@@ -145,7 +178,7 @@ function makePoemLines(post: Post): PoemLine[] {
   return post.lines.map((text, index) => ({
     id: `${post.id}-l${index}`,
     text,
-    by: index === 0 ? `Started by ${post.author.name.split(" ")[0]}` : post.mode === "turn_taking" ? "Added in relay" : "Added from reader comments",
+    by: index === 0 ? `Started by ${post.author.name.split(" ")[0]}` : isRelayPost(post) ? "Added in relay" : isCoCreativePost(post) ? "Added from co-writing room" : "Added from reader comments",
     locked: post.lockedLineIds?.includes(`${post.id}-l${index}`) ?? (post.lockState.status === "locked" || post.lockState.status === "published"),
   }));
 }
@@ -156,6 +189,41 @@ function nowIso() {
 
 function extractMentions(text: string) {
   return Array.from(new Set(text.match(/@[A-Za-z0-9_.-]+/g) ?? []));
+}
+
+function getCollaborationMode(post: Post): CollaborationMode {
+  return post.collaborationMode ?? (post.mode === "turn_taking" ? "co_creative" : "facilitated");
+}
+
+function getCoCreativePattern(post: Post): CoCreativePattern | undefined {
+  return post.coCreativePattern ?? (post.mode === "turn_taking" ? "turn_taking_relay" : undefined);
+}
+
+function isCoCreativePost(post: Post) {
+  return getCollaborationMode(post) === "co_creative";
+}
+
+function isRelayPost(post: Post) {
+  return getCoCreativePattern(post) === "turn_taking_relay";
+}
+
+function collaborationLabel(post: Post) {
+  return isCoCreativePost(post) ? "Co-writing" : "Author-led";
+}
+
+function patternLabel(pattern?: CoCreativePattern) {
+  if (pattern === "group_chat_brainstorm") return "Brainstorm";
+  if (pattern === "host_curated") return "Host curated";
+  if (pattern === "shared_editing") return "Shared edit";
+  if (pattern === "turn_taking_relay") return "Relay";
+  if (pattern === "parallel_branch_merge") return "Branch merge";
+  return "";
+}
+
+function channelModeLabel(channel: Channel) {
+  const mode = channel.defaultCollaborationMode ?? (channel.defaultMode === "turn_taking" ? "co_creative" : "facilitated");
+  const pattern = channel.defaultCoCreativePattern ?? (channel.defaultMode === "turn_taking" ? "turn_taking_relay" : undefined);
+  return mode === "co_creative" ? patternLabel(pattern) || "Co-writing" : "Theme challenge";
 }
 
 const canvasSizeMeta: Record<CanvasSize, { label: string; width: number; height: number }> = {
@@ -542,8 +610,8 @@ export default function App() {
   const [activeSpaceId, setActiveSpaceId] = useState(spacesSeed[0].id);
   const [activeGroupChatSpaceId, setActiveGroupChatSpaceId] = useState(spacesSeed[0].id);
   const [activeGroupTopicId, setActiveGroupTopicId] = useState<string>("topic-cyber-reading");
-  const [activeChannelId, setActiveChannelId] = useState(channelsSeed.find((channel) => channel.kind === "challenge" || channel.kind === "turn_taking")?.id ?? channelsSeed[0].id);
-  const [spaceNotice, setSpaceNotice] = useState("Choose a group, challenge, or fragment to start a co-creative workflow.");
+  const [activeChannelId, setActiveChannelId] = useState(channelsSeed.find((channel) => channel.kind === "challenge" || channel.kind === "turn_taking" || channel.kind === "co_writing" || channel.kind === "relay")?.id ?? channelsSeed[0].id);
+  const [spaceNotice, setSpaceNotice] = useState("Choose a group, challenge, or fragment to start a shared writing workflow.");
   const [profileTab, setProfileTab] = useState("Posts");
   const [commentDraft, setCommentDraft] = useState("");
   const [groupChatDraft, setGroupChatDraft] = useState("");
@@ -558,8 +626,9 @@ export default function App() {
   const [createTags, setCreateTags] = useState<string[]>(["#AI_memory", "#micro_poetry"]);
   const [tagDraft, setTagDraft] = useState("");
   const [backgroundImage, setBackgroundImage] = useState("");
-  const [creationKind, setCreationKind] = useState<CreationKind>("Feedback-supported draft");
+  const [creationKind, setCreationKind] = useState<CreationKind>("Draft for feedback");
   const [createMode, setCreateMode] = useState<CollaborationMode>("facilitated");
+  const [createPattern, setCreatePattern] = useState<CoCreativePattern>("host_curated");
   const [searchInput, setSearchInput] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
   const [settings, setSettings] = useState<CreateSettings>({
@@ -613,7 +682,7 @@ export default function App() {
     const visible = posts.filter((post) => post.visibility !== "private" || post.ownerId === currentUser.id);
     if (!query) return visible;
     return visible.filter((post) =>
-      [post.body, post.stage, post.mode, post.kind, post.author.name, post.author.handle, post.lockState.status, ...post.lines, ...post.tags]
+      [post.body, post.stage, getCollaborationMode(post), getCoCreativePattern(post) ?? "", post.kind, post.author.name, post.author.handle, post.lockState.status, ...post.lines, ...post.tags]
         .join(" ")
         .toLowerCase()
         .includes(query),
@@ -644,7 +713,7 @@ export default function App() {
       navigate("spaces");
       return;
     }
-    if (activeChannel?.kind === "challenge" || activeChannel?.kind === "turn_taking") {
+    if (activeChannel?.kind === "challenge" || activeChannel?.kind === "turn_taking" || activeChannel?.kind === "co_writing" || activeChannel?.kind === "relay") {
       setSpacesTab("Challenges");
       setActiveChannelId(activeChannel.id);
       navigate("spaces");
@@ -1056,7 +1125,7 @@ export default function App() {
         ? { defaultStyle: "coauthors", requiresContributorConsent: true, collectiveName: penName || undefined } as const
         : { ...helperAttribution, collectiveName: penName || undefined };
 
-    if (creationKind === "Private fragment") {
+    if (creationKind === "Fragment") {
       const fragment: Fragment = {
         id: `f${Date.now()}`,
         text,
@@ -1083,7 +1152,9 @@ export default function App() {
       return;
     }
 
-    const isTurnTaking = createMode === "turn_taking" || creationKind === "Turn-taking thread" || creationKind === "Challenge response";
+    const isCoCreative = createMode === "co_creative" || creationKind === "Co-writing room" || creationKind === "Relay thread";
+    const activePattern: CoCreativePattern | undefined = isCoCreative ? (creationKind === "Relay thread" ? "turn_taking_relay" : createPattern) : undefined;
+    const isRelay = activePattern === "turn_taking_relay";
     const isFinal = creationKind === "Final version";
     const draftDesign = publicationDesigns.find((design) => !design.workId && design.poemText.trim() === text);
     const visibility: Post["visibility"] = creationKind === "Challenge response"
@@ -1098,12 +1169,14 @@ export default function App() {
     const next: Post = {
       id: `p${Date.now()}`,
       author: publishingAuthor,
-      mode: isTurnTaking ? "turn_taking" : "facilitated",
-      kind: isTurnTaking ? "thread" : isFinal ? "final" : "draft",
+      mode: isRelay ? "turn_taking" : "facilitated",
+      collaborationMode: isCoCreative ? "co_creative" : "facilitated",
+      coCreativePattern: activePattern,
+      kind: isCoCreative ? "thread" : isFinal ? "final" : "draft",
       ownerId: currentUser.id,
       authorIds: Array.from(new Set([currentUser.id, ...settings.coAuthorIds])),
-      spaceId: visibility === "group" ? selectedGroup?.id : creationKind === "Group post" ? settings.selectedGroupId : undefined,
-      channelId: creationKind === "Challenge response" || creationKind === "Turn-taking thread" ? "channel-moon-relay" : "channel-draft-feedback",
+      spaceId: visibility === "group" ? selectedGroup?.id : creationKind === "Group discussion" ? settings.selectedGroupId : undefined,
+      channelId: creationKind === "Challenge response" || creationKind === "Relay thread" || creationKind === "Co-writing room" ? "channel-moon-relay" : "channel-draft-feedback",
       visibilityGroupId: visibility === "group" ? selectedGroup?.id : undefined,
       visibleUserIds: settings.visibilityMode === "include_people" ? settings.visibleUserIds : undefined,
       hiddenUserIds: settings.visibilityMode === "exclude_people" ? settings.hiddenUserIds : undefined,
@@ -1116,11 +1189,11 @@ export default function App() {
       imageUrl: backgroundImage || undefined,
       repliesOpen: settings.allowComments,
       allowReplies: settings.allowComments && settings.allowReplies,
-      allowBuild: isTurnTaking || settings.allowForward,
-      quoteAllowed: settings.allowForward || isTurnTaking,
+      allowBuild: isCoCreative || settings.allowForward,
+      quoteAllowed: settings.allowForward || isCoCreative,
       allowLike: settings.allowLike || settings.publicPost,
-      showHistory: settings.showHistory || isTurnTaking,
-      invited: isTurnTaking ? ["@Lin", "@Jia", ...coAuthors.map((author) => author.handle)] : settings.visibilityMode === "include_people" ? visibleHandles : settings.visibilityMode === "exclude_people" ? hiddenHandles.map((handle) => `hidden:${handle}`) : coAuthors.map((author) => author.handle),
+      showHistory: settings.showHistory || isCoCreative,
+      invited: isCoCreative ? ["@Lin", "@Jia", ...coAuthors.map((author) => author.handle)] : settings.visibilityMode === "include_people" ? visibleHandles : settings.visibilityMode === "exclude_people" ? hiddenHandles.map((handle) => `hidden:${handle}`) : coAuthors.map((author) => author.handle),
       likes: 0,
       comments: 0,
       quotes: 0,
@@ -1128,16 +1201,16 @@ export default function App() {
       liked: false,
       saved: false,
       contributors: Math.max(1, new Set([currentUser.id, ...settings.coAuthorIds]).size),
-      feedbackContract: isTurnTaking ? turnTakingContract : settings.allowForward ? defaultFeedbackContract : closeReadingContract,
-      attributionPolicy: isTurnTaking ? collectiveAttribution : createAttribution,
+      feedbackContract: isCoCreative ? turnTakingContract : settings.allowForward ? defaultFeedbackContract : closeReadingContract,
+      attributionPolicy: isCoCreative ? collectiveAttribution : createAttribution,
       attributionName: settings.attributionMode === "anonymous" ? "Anonymous" : penName || publishingAuthor.name,
       coAuthorIds: settings.coAuthorIds,
       anonymous: settings.attributionMode === "anonymous",
       publicationDesignId: draftDesign?.id,
       lockState: isFinal ? { status: "locked", lockedBy: currentUser.id, lockedAt: nowIso(), canBranch: true } : { status: "unlocked", canBranch: true },
       currentVersionId: `v-${Date.now()}`,
-      turnQueue: isTurnTaking ? [authors.lin.id, authors.jia.id, currentUser.id] : undefined,
-      activeTurnUserId: isTurnTaking ? authors.lin.id : undefined,
+      turnQueue: isRelay ? [authors.lin.id, authors.jia.id, currentUser.id] : undefined,
+      activeTurnUserId: isRelay ? authors.lin.id : undefined,
       lockedLineIds: [],
     };
     setPosts((current) => [next, ...current]);
@@ -1156,7 +1229,7 @@ export default function App() {
       upsertPublicationDesign(attachedDesign);
       addEvent(next.id, attachedDesign.locked ? "design_locked" : "design_saved", { designId: attachedDesign.id, templateId: attachedDesign.templateId, title: attachedDesign.title });
     }
-    addEvent(next.id, "created", { text, mode: next.mode, kind: next.kind });
+    addEvent(next.id, "created", { text, collaborationMode: next.collaborationMode ?? getCollaborationMode(next), coCreativePattern: next.coCreativePattern, kind: next.kind });
     if (isFinal) addEvent(next.id, "version_locked", { versionId: next.currentVersionId, label: "Created as locked final" });
     setActivePostId(next.id);
     setBackgroundImage("");
@@ -1183,6 +1256,7 @@ export default function App() {
       id: `p${Date.now()}`,
       author: currentUser,
       mode: "facilitated",
+      collaborationMode: "facilitated",
       kind: "draft",
       ownerId: currentUser.id,
       authorIds: [currentUser.id],
@@ -1241,6 +1315,7 @@ export default function App() {
       id: `p${Date.now()}`,
       author: currentUser,
       mode: "facilitated",
+      collaborationMode: "facilitated",
       kind: "draft",
       ownerId: currentUser.id,
       authorIds: [currentUser.id],
@@ -1288,50 +1363,23 @@ export default function App() {
     const channel = channelsSeed.find((item) => item.id === channelId);
     if (!channel) return;
     const space = channel.spaceId ? spacesSeed.find((item) => item.id === channel.spaceId) : undefined;
+    const isCoCreative = startMode !== "author_led";
     const isRelay = startMode === "relay";
-    if (!isRelay) {
-      const ownedGroups = spacesSeed.filter((item) => item.members.some((member) => member.userId === currentUser.id));
-      const targetSpace = space?.members.some((member) => member.userId === currentUser.id) ? space : ownedGroups[0];
-      if (!targetSpace) return;
-      const nextTopic: GroupTopic = {
-        id: `topic-${Date.now()}`,
-        spaceId: targetSpace.id,
-        title: `Brainstorm: ${channel.title}`,
-        type: "co_creation_call",
-        starter: channel.prompt ?? "Start a group brainstorm for this challenge.",
-        createdBy: currentUser,
-        createdAt: nowIso(),
-        tags: Array.from(new Set(["#challenge_brainstorm", ...channel.tags])),
-        unread: 0,
-        active: true,
-      };
-      const nextMessage: GroupChatMessage = {
-        id: `gm-${Date.now()}-challenge`,
-        spaceId: targetSpace.id,
-        topicId: nextTopic.id,
-        author: currentUser,
-        text: `Starting a group brainstorm for ${channel.title}. ${channel.prompt ?? ""}`.trim(),
-        createdAt: nowIso(),
-        mentions: [],
-        reactions: 0,
-      };
-      setGroupTopics((current) => [nextTopic, ...current]);
-      setGroupMessages((current) => [...current, nextMessage]);
-      setActiveChannelId(channel.id);
-      setSpaceNotice(`${channel.title} moved into ${targetSpace.name} as a group brainstorm topic.`);
-      openGroupChat(targetSpace.id, nextTopic.id);
-      return;
-    }
+    const pattern: CoCreativePattern | undefined = isRelay ? "turn_taking_relay" : isCoCreative ? "host_curated" : undefined;
     const starter = isRelay
       ? channel.prompt ?? "The first line waits for the next turn."
-      : `Brainstorm for ${channel.title}: collect images first, then decide what becomes the poem.`;
+      : isCoCreative
+        ? `Co-writing room for ${channel.title}: collect candidate lines, pin images, and decide what becomes the poem.`
+        : `Author-led response to ${channel.title}: I want close reading before this becomes public.`;
     const next: Post = {
       id: `p${Date.now()}`,
       author: currentUser,
       mode: isRelay ? "turn_taking" : "facilitated",
-      kind: isRelay ? "thread" : "draft",
+      collaborationMode: isCoCreative ? "co_creative" : "facilitated",
+      coCreativePattern: pattern,
+      kind: isCoCreative ? "thread" : "draft",
       ownerId: currentUser.id,
-      authorIds: isRelay ? [currentUser.id, authors.jia.id, authors.lin.id] : [currentUser.id],
+      authorIds: isCoCreative ? [currentUser.id, authors.jia.id, authors.lin.id] : [currentUser.id],
       spaceId: channel.spaceId,
       channelId: channel.id,
       stage: "Started from",
@@ -1339,24 +1387,24 @@ export default function App() {
       visibility: channel.visibility === "public" ? "challenge" : "group",
       body: starter,
       lines: [starter],
-      tags: Array.from(new Set(["#challenge", ...channel.tags])),
-      color: isRelay ? "moon" : "photo",
+      tags: Array.from(new Set([isCoCreative ? "#co_writing" : "#author_led", isRelay ? "#relay" : "#challenge", ...channel.tags])),
+      color: isRelay ? "moon" : isCoCreative ? "red" : "photo",
       repliesOpen: true,
       allowReplies: true,
       allowBuild: true,
       quoteAllowed: true,
       allowLike: true,
       showHistory: true,
-      invited: isRelay ? [authors.jia.handle, authors.lin.handle] : [authors.lin.handle, authors.jia.handle, authors.maya.handle],
+      invited: isCoCreative ? [authors.jia.handle, authors.lin.handle, authors.maya.handle] : [authors.lin.handle, authors.jia.handle],
       likes: 0,
       comments: 0,
       quotes: 0,
       saves: 0,
       liked: false,
       saved: false,
-      contributors: isRelay ? 3 : 1,
-      feedbackContract: isRelay ? turnTakingContract : defaultFeedbackContract,
-      attributionPolicy: isRelay ? collectiveAttribution : helperAttribution,
+      contributors: isCoCreative ? 3 : 1,
+      feedbackContract: isCoCreative ? turnTakingContract : defaultFeedbackContract,
+      attributionPolicy: isCoCreative ? collectiveAttribution : helperAttribution,
       lockState: { status: "unlocked", canBranch: true },
       currentVersionId: `v-${Date.now()}`,
       turnQueue: isRelay ? [authors.jia.id, authors.lin.id, currentUser.id] : undefined,
@@ -1365,12 +1413,12 @@ export default function App() {
     };
     setPosts((current) => [next, ...current]);
     setPoemLinesByPost((current) => ({ ...current, [next.id]: makePoemLines(next) }));
-    addEvent(next.id, "created", { workflow: isRelay ? "challenge_turn_taking" : "challenge_group_chat", challenge: channel.title, space: space?.name, text: starter });
+    addEvent(next.id, "created", { workflow: isRelay ? "challenge_turn_taking_relay" : isCoCreative ? "challenge_co_writing_room" : "challenge_author_led_response", challenge: channel.title, space: space?.name, text: starter });
     setActivePostId(next.id);
     setActiveChannelId(channel.id);
     if (space) setActiveSpaceId(space.id);
     setSpacesTab("Challenges");
-    setSpaceNotice(`${channel.title} started as ${isRelay ? "a turn-taking relay" : "a group chat brainstorm"}.`);
+    setSpaceNotice(`${channel.title} started as ${isRelay ? "a turn-taking relay pattern" : isCoCreative ? "a co-writing room" : "an author-led response"}.`);
     navigate("detail");
   };
 
@@ -1380,14 +1428,17 @@ export default function App() {
     if (action === "chat" || action === "thread" || action === "branch") {
       const isThread = action === "thread";
       const isChat = action === "chat";
+      const isFragmentCoCreative = isThread || isChat;
       const starter = isChat ? `Reading this fragment together: ${fragment.text}` : fragment.text;
       const next: Post = {
         id: `p${Date.now()}`,
         author: currentUser,
         mode: isThread ? "turn_taking" : "facilitated",
-        kind: isThread ? "thread" : "draft",
+        collaborationMode: isFragmentCoCreative ? "co_creative" : "facilitated",
+        coCreativePattern: isThread ? "turn_taking_relay" : isChat ? "group_chat_brainstorm" : undefined,
+        kind: isFragmentCoCreative ? "thread" : "draft",
         ownerId: currentUser.id,
-        authorIds: isThread ? [currentUser.id, authors.lin.id, authors.jia.id] : [currentUser.id],
+        authorIds: isFragmentCoCreative ? [currentUser.id, authors.lin.id, authors.jia.id] : [currentUser.id],
         channelId: isChat || isThread ? "channel-fragment-pool" : undefined,
         sourceFragmentId: fragment.id,
         stage: "Started from",
@@ -1410,9 +1461,9 @@ export default function App() {
         saves: 0,
         liked: false,
         saved: false,
-        contributors: isThread ? 3 : 1,
-        feedbackContract: isThread ? turnTakingContract : isChat ? closeReadingContract : defaultFeedbackContract,
-        attributionPolicy: isThread ? collectiveAttribution : helperAttribution,
+        contributors: isFragmentCoCreative ? 3 : 1,
+        feedbackContract: isFragmentCoCreative ? turnTakingContract : defaultFeedbackContract,
+        attributionPolicy: isFragmentCoCreative ? collectiveAttribution : helperAttribution,
         lockState: { status: "unlocked", canBranch: true },
         currentVersionId: `v-${Date.now()}`,
         turnQueue: isThread ? [authors.lin.id, authors.jia.id, currentUser.id] : undefined,
@@ -1555,6 +1606,8 @@ export default function App() {
               setCreationKind={setCreationKind}
               createMode={createMode}
               setCreateMode={setCreateMode}
+              createPattern={createPattern}
+              setCreatePattern={setCreatePattern}
               publicationTemplates={publicationTemplatesSeed}
               onSaveDesign={savePublicationDesign}
               onLockDesign={lockPublicationDesign}
@@ -1921,7 +1974,7 @@ function SpacesPage({
       {tab === "Groups" && <GroupsPanel spaces={spaces} channels={channels} posts={posts} topics={topics} activeSpaceId={activeSpaceId} setActiveSpaceId={setActiveSpaceId} startGroupDraft={startGroupDraft} openGroupChat={openGroupChat} forwardPostToGroup={forwardPostToGroup} openPost={openPost} />}
       {tab === "Challenges" && (
         <ChallengesPanel
-          channels={channels.filter((channel) => channel.kind === "challenge" || channel.kind === "turn_taking")}
+          channels={channels.filter((channel) => channel.kind === "challenge" || channel.kind === "turn_taking" || channel.kind === "co_writing" || channel.kind === "relay")}
           posts={posts}
           activeChannelId={activeChannelId}
           setActiveChannelId={setActiveChannelId}
@@ -2023,7 +2076,7 @@ function GroupsPanel({
                 {relatedPosts.slice(0, 6).map((post) => (
                   <div key={post.id} className="rounded-[18px] bg-[#eef0ff] p-4">
                     <button type="button" onClick={() => openPost(post.id)} className="w-full text-left">
-                      <p className="text-xs font-black uppercase text-[#001eff]">{post.mode === "turn_taking" ? "Turn-taking" : "Facilitated"} · {post.stage}</p>
+                      <p className="text-xs font-black uppercase text-[#001eff]">{collaborationLabel(post)}{isCoCreativePost(post) ? ` · ${patternLabel(getCoCreativePattern(post))}` : ""} · {post.stage}</p>
                       <p className="mt-2 text-base font-black leading-snug">{shorten(post.body, 92)}</p>
                       <p className="mt-2 text-xs font-bold text-[#737783]">{post.author.handle} · {post.comments} comments · {post.saves} saves</p>
                     </button>
@@ -2114,7 +2167,7 @@ function ChallengesPanel({
               <button type="button" onClick={() => setActiveChannelId(channel.id)} className="w-full text-left">
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div>
-                    <p className="font-mono text-sm font-black uppercase text-[#001eff]">{channel.defaultMode === "turn_taking" ? "Form-limited relay" : "Theme challenge"}</p>
+                    <p className="font-mono text-sm font-black uppercase text-[#001eff]">{channelModeLabel(channel)}</p>
                     <h3 className="mt-2 text-2xl font-black leading-tight">{channel.title}</h3>
                   </div>
                   <span className="rounded-full bg-[#001eff] px-3 py-1 text-xs font-black text-white">{channel.status}</span>
@@ -2127,12 +2180,15 @@ function ChallengesPanel({
                 <MetricBlock value={String(relatedPosts.length)} label="works" />
                 <MetricBlock value={channel.deadline ? "due" : "open"} label={channel.deadline ?? "no date"} />
               </div>
-              <div className="mt-4 grid gap-2 sm:grid-cols-2">
-                <button type="button" onClick={() => joinChallenge(channel.id, "chat")} className="rounded-full bg-[#001eff] px-4 py-2 text-sm font-black text-white">
-                  Create group topic
+              <div className="mt-4 grid gap-2 sm:grid-cols-3">
+                <button type="button" onClick={() => joinChallenge(channel.id, "author_led")} className="rounded-full bg-[#001eff] px-4 py-2 text-sm font-black text-white">
+                  Author-led
                 </button>
-                <button type="button" onClick={() => joinChallenge(channel.id, "relay")} className="rounded-full border-2 border-[#ff4b4f] px-4 py-2 text-sm font-black text-[#ff4b4f]">
-                  Turn-taking thread
+                <button type="button" onClick={() => joinChallenge(channel.id, "co_writing")} className="rounded-full border-2 border-[#ff4b4f] px-4 py-2 text-sm font-black text-[#ff4b4f]">
+                  Co-writing room
+                </button>
+                <button type="button" onClick={() => joinChallenge(channel.id, "relay")} className="rounded-full bg-[#ff4b4f] px-4 py-2 text-sm font-black text-white">
+                  Relay
                 </button>
               </div>
             </article>
@@ -2150,17 +2206,24 @@ function ChallengesPanel({
           <span className="rounded-full bg-[#ff4b4f] px-5 py-2 text-sm font-black text-white">{activeChannel.deadline ? `Due ${activeChannel.deadline}` : "Open ended"}</span>
         </div>
 
-        <div className="mt-6 grid gap-4 md:grid-cols-2">
+        <div className="mt-6 grid gap-4 md:grid-cols-3">
           <div className="rounded-[22px] bg-[#eef0ff] p-5">
-            <p className="font-mono text-xl font-black text-[#001eff]">Group chat brainstorm</p>
-            <p className="mt-2 text-sm font-bold leading-relaxed text-[#3b3d45]">Create a topic inside one of your groups, then brainstorm with mentions, quotes, and forwarded posts.</p>
-            <button type="button" onClick={() => joinChallenge(activeChannel.id, "chat")} className="mt-4 rounded-full bg-[#001eff] px-5 py-2 text-sm font-black text-white">
-              Create group topic
+            <p className="font-mono text-xl font-black text-[#001eff]">Author-led response</p>
+            <p className="mt-2 text-sm font-bold leading-relaxed text-[#3b3d45]">Write your own response, invite close reading, and decide which suggestions enter the poem.</p>
+            <button type="button" onClick={() => joinChallenge(activeChannel.id, "author_led")} className="mt-4 rounded-full bg-[#001eff] px-5 py-2 text-sm font-black text-white">
+              Start response
+            </button>
+          </div>
+          <div className="rounded-[22px] bg-[#fff3f6] p-5">
+            <p className="font-mono text-xl font-black text-[#ff4b4f]">Co-writing room</p>
+            <p className="mt-2 text-sm font-bold leading-relaxed text-[#3b3d45]">Collect candidate lines, pin ideas, and let a host or editor accept contributions with credit.</p>
+            <button type="button" onClick={() => joinChallenge(activeChannel.id, "co_writing")} className="mt-4 rounded-full bg-[#ff4b4f] px-5 py-2 text-sm font-black text-white">
+              Open room
             </button>
           </div>
           <div className="rounded-[22px] bg-[#fff3f6] p-5">
             <p className="font-mono text-xl font-black text-[#ff4b4f]">Turn-taking relay</p>
-            <p className="mt-2 text-sm font-bold leading-relaxed text-[#3b3d45]">Use this when each turn adds a line, the queue is visible, and lock-in preserves shared authorship.</p>
+            <p className="mt-2 text-sm font-bold leading-relaxed text-[#3b3d45]">Use the relay pattern only when sequence matters and each turn adds a line.</p>
             <button type="button" onClick={() => joinChallenge(activeChannel.id, "relay")} className="mt-4 rounded-full bg-[#ff4b4f] px-5 py-2 text-sm font-black text-white">
               Start relay thread
             </button>
@@ -2172,9 +2235,9 @@ function ChallengesPanel({
             <h4 className="font-mono text-2xl font-black text-[#001eff]">Challenge flow</h4>
             <div className="mt-4 grid gap-3 sm:grid-cols-2">
               <WorkflowStep index="1" title="Join challenge" body="Participants see theme, tags, form, deadline, and active works." />
-              <WorkflowStep index="2" title="Choose pathway" body="Brainstorm stays outside the poem; relay lines enter a visible sequence." />
-              <WorkflowStep index="3" title="Track turns" body="Queue, pass rules, locked lines, and collective attribution make boundaries explicit." />
-              <WorkflowStep index="4" title="Finish together" body="The final form can be locked with a contribution chain and shared credit." />
+              <WorkflowStep index="2" title="Choose pathway" body="Author-led work keeps suggestions outside; co-writing moves contributions inside a contract." />
+              <WorkflowStep index="3" title="Track pattern" body="Rooms, shared edits, and relays show different tools without changing the authorship boundary." />
+              <WorkflowStep index="4" title="Finish with credit" body="The final form can be locked with a contribution chain and shared or helper credit." />
             </div>
           </div>
           <aside className="rounded-[22px] border-2 border-[#e8e0d9] p-4">
@@ -2182,7 +2245,7 @@ function ChallengesPanel({
             <div className="mt-3 grid gap-2">
               {activePosts.slice(0, 4).map((post) => (
                 <button key={post.id} type="button" onClick={() => openPost(post.id)} className="rounded-[16px] bg-[#eef0ff] p-3 text-left">
-                  <p className="text-sm font-black text-[#001eff]">{post.mode === "turn_taking" ? "Relay thread" : "Chat brainstorm"}</p>
+                  <p className="text-sm font-black text-[#001eff]">{collaborationLabel(post)}{isCoCreativePost(post) ? ` · ${patternLabel(getCoCreativePattern(post))}` : ""}</p>
                   <p className="mt-1 text-sm font-bold">{shorten(post.body, 70)}</p>
                 </button>
               ))}
@@ -2287,7 +2350,7 @@ function StreamMapPanel({
       <section className="relative min-h-[460px] overflow-hidden rounded-[30px] border-2 border-[#001eff] bg-white p-5">
         <svg className="absolute inset-0 h-full w-full" viewBox="0 0 100 100" preserveAspectRatio="none">
           {focusPosts.slice(0, 5).map((post, index) => (
-            <path key={post.id} d={`M50 88 C50 ${65 - index * 4}, ${24 + index * 15} ${62 - index * 8}, ${24 + index * 15} ${48 - index * 7}`} stroke={post.mode === "turn_taking" ? "#ff4b4f" : "#001eff"} strokeWidth="0.55" fill="none" opacity="0.55" />
+            <path key={post.id} d={`M50 88 C50 ${65 - index * 4}, ${24 + index * 15} ${62 - index * 8}, ${24 + index * 15} ${48 - index * 7}`} stroke={isCoCreativePost(post) ? "#ff4b4f" : "#001eff"} strokeWidth="0.55" fill="none" opacity="0.55" />
           ))}
         </svg>
         <div className="absolute left-1/2 top-[82%] -translate-x-1/2 -translate-y-1/2 text-center">
@@ -2299,10 +2362,10 @@ function StreamMapPanel({
             key={post.id}
             type="button"
             onClick={() => openPost(post.id)}
-            className={`absolute max-w-[190px] text-left font-black leading-tight ${post.mode === "turn_taking" ? "text-[#ff4b4f]" : "text-[#001eff]"}`}
+            className={`absolute max-w-[190px] text-left font-black leading-tight ${isCoCreativePost(post) ? "text-[#ff4b4f]" : "text-[#001eff]"}`}
             style={{ left: `${22 + index * 15}%`, top: `${46 - index * 7}%` }}
           >
-            <span className="mb-1 inline-grid h-6 w-6 place-items-center rounded-full bg-[#eef0ff] text-[10px]">{post.mode === "turn_taking" ? "T" : "F"}</span>
+            <span className="mb-1 inline-grid h-6 w-6 place-items-center rounded-full bg-[#eef0ff] text-[10px]">{isCoCreativePost(post) ? "C" : "A"}</span>
             <span className="block text-sm">{shorten(post.body, 54)}</span>
           </button>
         ))}
@@ -2310,7 +2373,7 @@ function StreamMapPanel({
       <aside className="rounded-[26px] border-2 border-[#001eff] p-5">
         <p className="font-mono text-2xl font-black text-[#001eff]">Map signals</p>
         <div className="mt-5 grid gap-3 text-sm font-black">
-          <span>{posts.filter((post) => post.mode === "turn_taking").length} turn-taking threads</span>
+          <span>{posts.filter((post) => isCoCreativePost(post)).length} co-writing works</span>
           <span>{posts.filter((post) => post.lockState.status === "locked").length} locked versions</span>
           <span>{comments.length} comments feeding suggestions</span>
         </div>
@@ -2702,12 +2765,14 @@ function CreatePage(props: {
   setCreationKind: (kind: CreationKind) => void;
   createMode: CollaborationMode;
   setCreateMode: (mode: CollaborationMode) => void;
+  createPattern: CoCreativePattern;
+  setCreatePattern: (pattern: CoCreativePattern) => void;
   publicationTemplates: DesignTemplate[];
   onSaveDesign: (design: PublicationDesign) => void;
   onLockDesign: (design: PublicationDesign) => void;
   onExportDesign: (design: PublicationDesign, type: ExportRecord["type"], filename: string) => void;
 }) {
-  const { draft, setDraft, createTags, setCreateTags, tagDraft, setTagDraft, backgroundImage, setBackgroundImage, settings, setSettings, spaces, publishPost, creationKind, setCreationKind, createMode, setCreateMode, publicationTemplates, onSaveDesign, onLockDesign, onExportDesign } = props;
+  const { draft, setDraft, createTags, setCreateTags, tagDraft, setTagDraft, backgroundImage, setBackgroundImage, settings, setSettings, spaces, publishPost, creationKind, setCreationKind, createMode, setCreateMode, createPattern, setCreatePattern, publicationTemplates, onSaveDesign, onLockDesign, onExportDesign } = props;
   const ownGroups = spaces.filter((space) => space.members.some((member) => member.userId === currentUser.id));
   const allUsers = Object.values(authors).filter((author) => author.id !== currentUser.id);
   const visibilityOptions: { value: VisibilityMode; label: string; description: string }[] = [
@@ -2775,6 +2840,21 @@ function CreatePage(props: {
     reader.readAsDataURL(file);
   };
   const toggleContract = (key: "allowComments" | "allowForward") => setSettings({ ...settings, [key]: !settings[key] });
+  const selectedIntent = createIntentCards.find((item) => item.kind === creationKind) ?? createIntentCards[1];
+  const chooseIntent = (intent: typeof createIntentCards[number]) => {
+    setCreationKind(intent.kind);
+    setCreateMode(intent.collaborationMode);
+    if (intent.pattern) setCreatePattern(intent.pattern);
+    if (intent.kind === "Fragment") setSettings({ ...settings, visibilityMode: "private", publicPost: false });
+    if (intent.kind === "Group discussion") setSettings({ ...settings, visibilityMode: "group", selectedGroupId: settings.selectedGroupId ?? ownGroups[0]?.id });
+    if (intent.collaborationMode === "co_creative") setSettings({ ...settings, allowComments: true, allowForward: true, showHistory: true, allowLike: true });
+  };
+  const selectChallengePath = (mode: CollaborationMode, pattern?: CoCreativePattern) => {
+    setCreateMode(mode);
+    if (pattern) setCreatePattern(pattern);
+    if (mode === "co_creative") setSettings({ ...settings, allowComments: true, allowForward: true, showHistory: true });
+  };
+  const participationItems = createMode === "co_creative" ? coCreativeParticipation : facilitatedParticipation;
   const packageAuthorName = settings.attributionMode === "anonymous"
     ? "Anonymous poet"
     : settings.attributionMode === "pen_name" && settings.penName.trim()
@@ -2789,28 +2869,99 @@ function CreatePage(props: {
   return (
     <form onSubmit={publishPost} className="max-w-[1074px] pt-1">
       <h1 className="font-mono text-[36px] font-black leading-none text-[#001eff] lg:text-[38px]">Create / Start</h1>
-      <p className="mt-2 text-base font-black text-[#737783]">Choose whether this is private material, feedback-supported writing, or explicit turn-taking co-creation.</p>
+      <p className="mt-2 text-base font-black text-[#737783]">Choose a natural starting point. LINESPACE turns it into the right feedback, authorship, and lock-in rules.</p>
 
-      <section className="mt-6 grid gap-4 rounded-[24px] border-2 border-[#e8e0d9] p-4 lg:grid-cols-[minmax(0,1.25fr)_minmax(0,0.75fr)]">
-        <div>
-          <p className="mb-3 font-mono text-lg font-black text-[#001eff]">Creation type</p>
-          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-            {creationKinds.map((kind) => (
-              <button key={kind} type="button" onClick={() => {
-                setCreationKind(kind);
-                if (kind === "Turn-taking thread" || kind === "Challenge response") setCreateMode("turn_taking");
-                if (kind === "Feedback-supported draft" || kind === "Group post" || kind === "Private fragment") setCreateMode("facilitated");
-              }} className={`min-h-[64px] rounded-[16px] border-2 px-4 py-3 text-left text-sm font-black ${creationKind === kind ? "border-[#001eff] bg-[#eef0ff] text-[#001eff]" : "border-[#ded7cd] text-[#444]"}`}>
-                {kind}
-              </button>
-            ))}
+      <section className="mt-6 rounded-[24px] border-2 border-[#e8e0d9] p-4 lg:p-5">
+        <div className="mb-4 flex flex-col justify-between gap-3 sm:flex-row sm:items-end">
+          <div>
+            <p className="font-mono text-xl font-black text-[#001eff]">Step 1 · What are you starting?</p>
+            <p className="mt-1 text-sm font-bold text-[#737783]">Choose the workflow first. LINESPACE maps it to author-led or co-writing rules behind the scenes.</p>
           </div>
+          <span className={`w-max rounded-full px-4 py-2 text-xs font-black text-white ${createMode === "co_creative" ? "bg-[#ff4b4f]" : "bg-[#001eff]"}`}>
+            {createMode === "co_creative" ? "Co-writing" : "Author-led"}{createMode === "co_creative" ? ` · ${patternLabel(createPattern)}` : ""}
+          </span>
         </div>
-        <div>
-          <p className="mb-3 font-mono text-lg font-black text-[#001eff]">Collaboration mode</p>
-          <div className="grid gap-3">
-            <ModeButton active={createMode === "facilitated"} title="Facilitated Writing" description="One author keeps final control; readers provide comments, interpretations, and possible lines." onClick={() => setCreateMode("facilitated")} />
-            <ModeButton active={createMode === "turn_taking"} title="Co-creative Turn-taking Writing" description="Participants agree to add lines in sequence and share attribution through a visible contract." onClick={() => setCreateMode("turn_taking")} />
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          {createIntentCards.map((intent) => {
+            const active = creationKind === intent.kind;
+            return (
+              <button
+                key={intent.kind}
+                type="button"
+                onClick={() => chooseIntent(intent)}
+                className={`min-h-[132px] rounded-[18px] border-2 p-4 text-left transition ${active ? "border-[#001eff] bg-[#eef0ff]" : "border-[#ded7cd] bg-white hover:border-[#001eff]"}`}
+              >
+                <span className={`mb-3 inline-flex rounded-full px-3 py-1 text-[11px] font-black ${intent.collaborationMode === "co_creative" ? "bg-[#fff3f6] text-[#ff4b4f]" : "bg-[#eef0ff] text-[#001eff]"}`}>{intent.badge}</span>
+                <span className="block text-base font-black">{intent.title}</span>
+                <span className="mt-2 block text-xs font-bold leading-relaxed text-[#737783]">{intent.description}</span>
+              </button>
+            );
+          })}
+        </div>
+      </section>
+
+      <section className="mt-5 rounded-[24px] border-2 border-[#e8e0d9] p-4 lg:p-5">
+        <p className="font-mono text-xl font-black text-[#001eff]">Step 2 · How can others participate?</p>
+        <p className="mt-1 text-sm font-bold text-[#737783]">{selectedIntent.title} is configured as {createMode === "co_creative" ? "co-writing" : "author-led"} work{createMode === "co_creative" ? ` with ${patternLabel(createPattern).toLowerCase()} tools` : ""}.</p>
+        <div className="mt-4 grid gap-4 lg:grid-cols-[minmax(0,0.82fr)_minmax(0,1.18fr)]">
+          <div className={`rounded-[20px] p-4 ${createMode === "co_creative" ? "bg-[#fff3f6]" : "bg-[#eef0ff]"}`}>
+            <p className={`text-lg font-black ${createMode === "co_creative" ? "text-[#ff4b4f]" : "text-[#001eff]"}`}>
+              {createMode === "co_creative" ? "Co-writing boundary" : "Author-led feedback boundary"}
+            </p>
+            <p className="mt-2 text-sm font-bold leading-relaxed text-[#3b3d45]">
+              {createMode === "co_creative"
+                ? "Participants contribute inside the work. The contract defines who can add, edit, accept, vote, and lock."
+                : "Readers respond around the work. Suggestions become candidates; the author decides what enters the poem."}
+            </p>
+            <div className="mt-4 flex flex-wrap gap-2">
+              {participationItems.map((item) => <BlueChip key={item}>{item}</BlueChip>)}
+            </div>
+          </div>
+          <div className="rounded-[20px] border-2 border-[#e8e0d9] p-4">
+            {creationKind === "Challenge response" && (
+              <div className="mb-4">
+                <p className="mb-3 text-sm font-black text-[#001eff]">Challenge path</p>
+                <div className="grid gap-2 sm:grid-cols-2">
+                  <button type="button" onClick={() => selectChallengePath("facilitated")} className={`rounded-[16px] border-2 p-3 text-left text-sm font-black ${createMode === "facilitated" ? "border-[#001eff] bg-[#eef0ff] text-[#001eff]" : "border-[#e8e0d9]"}`}>
+                    Author-led response
+                  </button>
+                  <button type="button" onClick={() => selectChallengePath("co_creative", "host_curated")} className={`rounded-[16px] border-2 p-3 text-left text-sm font-black ${createMode === "co_creative" ? "border-[#ff4b4f] bg-[#fff3f6] text-[#ff4b4f]" : "border-[#e8e0d9]"}`}>
+                    Open co-writing
+                  </button>
+                </div>
+              </div>
+            )}
+            {createMode === "co_creative" ? (
+              <div>
+                <p className="mb-3 text-sm font-black text-[#ff4b4f]">Co-writing pattern</p>
+                <div className="grid gap-2 sm:grid-cols-2">
+                  {coCreativePatternOptions
+                    .filter((option) => creationKind === "Relay thread" ? option.value === "turn_taking_relay" : option.value !== "turn_taking_relay" || creationKind === "Challenge response")
+                    .map((option) => (
+                      <button
+                        key={option.value}
+                        type="button"
+                        onClick={() => setCreatePattern(option.value)}
+                        className={`min-h-[86px] rounded-[16px] border-2 p-3 text-left ${createPattern === option.value ? "border-[#ff4b4f] bg-[#fff3f6]" : "border-[#e8e0d9]"}`}
+                      >
+                        <span className="block text-sm font-black">{option.label}</span>
+                        <span className="mt-1 block text-xs font-bold text-[#737783]">{option.description}</span>
+                      </button>
+                    ))}
+                </div>
+              </div>
+            ) : (
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="rounded-[16px] bg-[#eef0ff] p-3">
+                  <p className="text-sm font-black text-[#001eff]">Suggestion gate</p>
+                  <p className="mt-1 text-xs font-bold text-[#737783]">Comments, close readings, and possible lines stay outside the poem until accepted.</p>
+                </div>
+                <div className="rounded-[16px] bg-[#eef0ff] p-3">
+                  <p className="text-sm font-black text-[#001eff]">Author control</p>
+                  <p className="mt-1 text-xs font-bold text-[#737783]">Lock-in and publishing remain with the author or named editor.</p>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       </section>
@@ -2863,7 +3014,8 @@ function CreatePage(props: {
         />
       )}
       <section className="mt-7 rounded-[24px] border-2 border-[#e8e0d9] p-5">
-        <p className="font-mono text-xl font-black text-[#001eff]">Visibility</p>
+        <p className="font-mono text-xl font-black text-[#001eff]">Step 3 · Contract / Visibility</p>
+        <p className="mt-1 text-sm font-bold text-[#737783]">{createMode === "co_creative" ? "Set who joins the co-writing process and how visible the shared draft should be." : "Set who can read and respond while the author keeps final control."}</p>
         <div className="mt-4 grid gap-3 md:grid-cols-5">
           {visibilityOptions.map((option) => (
             <button key={option.value} type="button" onClick={() => setVisibilityMode(option.value)} className={`min-h-[92px] rounded-[16px] border-2 p-3 text-left ${settings.visibilityMode === option.value ? "border-[#001eff] bg-[#eef0ff] text-[#001eff]" : "border-[#ded7cd] text-[#444]"}`}>
@@ -2897,6 +3049,7 @@ function CreatePage(props: {
       <section className="mt-5 grid gap-5 lg:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)]">
         <div className="rounded-[24px] border-2 border-[#e8e0d9] p-5">
           <p className="font-mono text-xl font-black text-[#001eff]">Feedback contract</p>
+          <p className="mt-1 text-xs font-bold text-[#737783]">{createMode === "co_creative" ? "For co-writing, comments are part of coordination; candidate text still needs a clear accept or lock rule." : "For author-led writing, feedback stays suggestive until the author accepts it."}</p>
           <div className="mt-4 grid gap-3">
             <button type="button" onClick={() => toggleContract("allowComments")} className={`flex min-h-[70px] items-center justify-between rounded-[16px] border-2 px-4 py-3 text-left ${settings.allowComments ? "border-[#001eff] bg-[#eef0ff]" : "border-[#ded7cd]"}`}>
               <span><span className="block font-black">Allow comments</span><span className="mt-1 block text-xs font-bold text-[#737783]">Readers can respond; AI can organize feedback.</span></span>
@@ -2911,6 +3064,7 @@ function CreatePage(props: {
 
         <div className="rounded-[24px] border-2 border-[#e8e0d9] p-5">
           <p className="font-mono text-xl font-black text-[#001eff]">Attribution policy</p>
+          <p className="mt-1 text-xs font-bold text-[#737783]">{createMode === "co_creative" ? "Co-writing can use multi-signature, collective names, or anonymous collective credit." : "Author-led work can credit helpers without turning them into co-authors."}</p>
           <div className="mt-4 grid gap-3 sm:grid-cols-3">
             {attributionOptions.map((option) => (
               <button key={option.value} type="button" onClick={() => setSettings({ ...settings, attributionMode: option.value })} className={`min-h-[86px] rounded-[16px] border-2 p-3 text-left ${settings.attributionMode === option.value ? "border-[#001eff] bg-[#eef0ff] text-[#001eff]" : "border-[#ded7cd] text-[#444]"}`}>
@@ -2930,10 +3084,10 @@ function CreatePage(props: {
         </div>
       </section>
       <p className="mt-6 rounded-2xl bg-[#eef0ff] px-5 py-4 text-base font-black text-[#001eff]">
-        Visibility controls who can see it. Feedback controls what others can do. Attribution controls how the byline appears when this becomes a locked version.
+        {createMode === "co_creative" ? "Co-writing means contributors can enter the work through a visible contract. Pattern, credit, and lock rules keep shared authorship legible." : "Author-led feedback means others can help around the poem, while accepted text, lock-in, and publication stay under author control."}
       </p>
       <button className="mt-8 h-[58px] w-full rounded-2xl bg-[#f43f5e] text-[28px] font-black text-white lg:text-[32px]">
-        {creationKind === "Private fragment" ? "Save Fragment" : settings.visibilityMode === "private" ? "Save Draft" : "Publish / Start"}
+        {creationKind === "Fragment" ? "Save Fragment" : settings.visibilityMode === "private" ? "Save Draft" : "Publish / Start"}
       </button>
     </form>
   );
@@ -3145,7 +3299,7 @@ function GroupChatPage({
             <div className="mt-3 grid gap-3">
               {(forwardedPosts.length ? forwardedPosts : groupPosts.slice(0, 3)).map((post) => (
                 <button key={post.id} type="button" onClick={() => openPost(post.id)} className="rounded-[16px] bg-[#eef0ff] p-3 text-left">
-                  <p className="text-sm font-black text-[#001eff]">{post.mode === "turn_taking" ? "Relay" : "Draft"} · {post.stage}</p>
+                  <p className="text-sm font-black text-[#001eff]">{collaborationLabel(post)}{isCoCreativePost(post) ? ` · ${patternLabel(getCoCreativePattern(post))}` : ""} · {post.stage}</p>
                   <p className="mt-1 text-sm font-bold">{shorten(post.body, 70)}</p>
                 </button>
               ))}
@@ -3197,7 +3351,7 @@ function GroupMessageRow({
         <button type="button" onClick={() => openPost(post.id)} className="mt-4 w-full rounded-[18px] border-2 border-[#001eff] bg-white p-4 text-left">
           <p className="text-xs font-black uppercase text-[#001eff]">Forwarded post</p>
           <p className="mt-1 font-black">{shorten(post.body, 110)}</p>
-          <p className="mt-2 text-xs font-bold text-[#737783]">{post.author.handle} · {post.mode.replace("_", " ")} · {post.tags.slice(0, 3).join(" ")}</p>
+          <p className="mt-2 text-xs font-bold text-[#737783]">{post.author.handle} · {collaborationLabel(post)}{isCoCreativePost(post) ? ` / ${patternLabel(getCoCreativePattern(post))}` : ""} · {post.tags.slice(0, 3).join(" ")}</p>
         </button>
       )}
       <div className="mt-3 flex flex-wrap gap-2 text-xs font-black text-[#737783]">
@@ -3229,15 +3383,6 @@ function topicTypeLabel(type: GroupTopicType) {
     co_creation_call: "Co-creation call",
   };
   return labels[type];
-}
-
-function ModeButton({ active, title, description, onClick }: { active: boolean; title: string; description: string; onClick: () => void }) {
-  return (
-    <button type="button" onClick={onClick} className={`rounded-[18px] border-2 p-4 text-left ${active ? "border-[#001eff] bg-[#001eff] text-white" : "border-[#d7d7d7] text-[#222]"}`}>
-      <span className="block text-lg font-black">{title}</span>
-      <span className={`mt-1 block text-sm font-bold ${active ? "text-white/80" : "text-[#737783]"}`}>{description}</span>
-    </button>
-  );
 }
 
 function DetailPage(props: {
@@ -3370,7 +3515,7 @@ function DetailPage(props: {
           </div>
           {(space || channel || sourceFragment) && <OriginPanel post={post} space={space} channel={channel} sourceFragment={sourceFragment} openContext={openContext} />}
         </section>
-        {post.mode === "facilitated" ? (
+        {!isCoCreativePost(post) ? (
           <FacilitatedWorkbench
             post={post}
             comments={comments}
@@ -3389,7 +3534,7 @@ function DetailPage(props: {
             navigate={navigate}
           />
         ) : (
-          <TurnTakingWorkbench
+          <CoCreativeWorkbench
             post={post}
             poemLines={poemLines}
             comments={comments}
@@ -3406,7 +3551,7 @@ function DetailPage(props: {
           />
         )}
       </div>
-      {post.mode === "facilitated" && !locked && (
+      {!isCoCreativePost(post) && !locked && (
         <EditPoemPanel
           title="Edit poem"
           subtitle="Review accepted reader lines, adjust the order, then save this version."
@@ -3449,8 +3594,8 @@ function OriginPanel({
   sourceFragment?: Fragment;
   openContext: () => void;
 }) {
-  let pathway = "Facilitated writing";
-  if (post.mode === "turn_taking") pathway = channel?.kind === "challenge" ? "Challenge relay" : "Turn-taking relay";
+  let pathway = "Author-led feedback";
+  if (isCoCreativePost(post)) pathway = isRelayPost(post) ? (channel?.kind === "challenge" ? "Challenge relay pattern" : "Turn-taking relay pattern") : `Co-writing · ${patternLabel(getCoCreativePattern(post))}`;
   else if (sourceFragment) pathway = "Fragment-based brainstorm";
   else if (space) pathway = "Group feedback";
   return (
@@ -3472,7 +3617,7 @@ function OriginPanel({
           <div className="rounded-[16px] border border-[#e8e0d9] p-3">
             <p className="text-xs font-black uppercase text-[#737783]">Channel</p>
             <p className="mt-1">{channel.title}</p>
-            <p className="mt-1 text-xs text-[#737783]">{channel.kind.replace("_", " ")} · {channel.defaultMode.replace("_", " ")}</p>
+            <p className="mt-1 text-xs text-[#737783]">{channel.kind.replace("_", " ")} · {channelModeLabel(channel)}</p>
           </div>
         )}
         {sourceFragment && (
@@ -3513,7 +3658,7 @@ function FacilitatedWorkbench(props: {
     <section className="rounded-t-[18px] bg-gradient-to-b from-[#c6dbff] to-white p-4">
       <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-[21px] font-black text-[#001eff]">Facilitated Writing</h1>
+          <h1 className="text-[21px] font-black text-[#001eff]">Author-led Workbench</h1>
           <p className="text-sm font-bold text-[#737783]">{activeSuggestionCount} open AI-organized suggestions · {contributions.length} contribution records</p>
         </div>
         <FeedbackContractPills contract={post.feedbackContract} />
@@ -3536,6 +3681,165 @@ function FacilitatedWorkbench(props: {
           <CommentRow key={comment.id} comment={comment} suggestions={suggestionsByComment.get(comment.id) ?? []} showAuthorTools={!locked} likeComment={likeComment} addSuggestionToPoem={addSuggestionToPoem} editSuggestion={editSuggestion} updateSuggestion={updateSuggestion} ignoreSuggestion={ignoreSuggestion} navigate={navigate} />
         ))}
       </div>
+    </section>
+  );
+}
+
+function CoCreativeWorkbench(props: {
+  post: Post;
+  poemLines: PoemLine[];
+  comments: Comment[];
+  commentDraft: string;
+  turnDraft: string;
+  locked: boolean;
+  setTurnDraft: (value: string) => void;
+  setCommentDraft: (value: string) => void;
+  submitTurnLine: (event: FormEvent) => void;
+  addComment: (event: FormEvent) => void;
+  likeComment: (id: string) => void;
+  lockLine: (postId: string, lineId: string) => void;
+  navigate: (view: View) => void;
+}) {
+  const { post, poemLines, comments, commentDraft, turnDraft, locked, setTurnDraft, setCommentDraft, submitTurnLine, addComment, likeComment, lockLine, navigate } = props;
+  const pattern = getCoCreativePattern(post) ?? "host_curated";
+  const [candidateStatus, setCandidateStatus] = useState<Record<string, "proposed" | "accepted" | "editing" | "declined">>({});
+  const [sharedDraftLines, setSharedDraftLines] = useState(poemLines.map((line) => line.text));
+  if (pattern === "turn_taking_relay") {
+    return (
+      <TurnTakingWorkbench
+        post={post}
+        poemLines={poemLines}
+        comments={comments}
+        commentDraft={commentDraft}
+        turnDraft={turnDraft}
+        locked={locked}
+        setTurnDraft={setTurnDraft}
+        setCommentDraft={setCommentDraft}
+        submitTurnLine={submitTurnLine}
+        addComment={addComment}
+        likeComment={likeComment}
+        lockLine={lockLine}
+        navigate={navigate}
+      />
+    );
+  }
+  const participants = post.authorIds
+    .map((id) => Object.values(authors).find((author) => author.id === id))
+    .filter((author): author is Author => Boolean(author));
+  const candidateLines = comments.length > 0
+    ? comments.slice(0, 4).map((comment) => ({ id: comment.id, text: comment.text, author: comment.author }))
+    : [
+        { id: `${post.id}-candidate-1`, text: "Add one image that everyone can return to.", author: authors.lin },
+        { id: `${post.id}-candidate-2`, text: "Keep the final line open enough for another voice.", author: authors.jia },
+      ];
+
+  return (
+    <section className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_310px]">
+      <div className="rounded-[26px] border-2 border-[#ff4b4f] bg-white p-5">
+        <div className="mb-5 flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <h1 className="text-[26px] font-black text-[#ff4b4f]">Co-writing Workbench</h1>
+            <p className="mt-1 text-sm font-bold text-[#737783]">{patternLabel(pattern)} pattern · contributions enter through a visible contract.</p>
+          </div>
+          <span className="rounded-full bg-[#ff4b4f] px-4 py-2 text-sm font-black text-white">{locked ? "locked shared version" : "shared draft"}</span>
+        </div>
+
+        <div className="mb-5 grid gap-3 md:grid-cols-3">
+          <div className="rounded-[18px] bg-[#fff3f6] p-4">
+            <p className="text-sm font-black text-[#ff4b4f]">Contract</p>
+            <p className="mt-2 text-xs font-bold leading-relaxed text-[#737783]">Candidate text can be accepted, revised, declined, or locked by the agreed editor.</p>
+          </div>
+          <div className="rounded-[18px] bg-[#eef0ff] p-4">
+            <p className="text-sm font-black text-[#001eff]">Roles</p>
+            <p className="mt-2 text-xs font-bold leading-relaxed text-[#737783]">{participants.length} named participants · host-curated decisions.</p>
+          </div>
+          <div className="rounded-[18px] bg-[#f7f7f7] p-4">
+            <p className="text-sm font-black text-[#111]">Attribution</p>
+            <p className="mt-2 text-xs font-bold leading-relaxed text-[#737783]">{post.attributionPolicy.collectiveName ?? "Collective credit"} with consent before publishing.</p>
+          </div>
+        </div>
+
+        {pattern === "shared_editing" ? (
+          <div className="rounded-[22px] border-2 border-[#001eff] bg-[#eef0ff] p-4">
+            <p className="mb-3 font-black text-[#001eff]">Shared editing room</p>
+            <div className="grid gap-3">
+              {sharedDraftLines.map((line, index) => (
+                <textarea
+                  key={`${post.id}-shared-${index}`}
+                  value={line}
+                  disabled={locked}
+                  onChange={(event) => setSharedDraftLines((current) => current.map((item, lineIndex) => (lineIndex === index ? event.target.value : item)))}
+                  className="min-h-[74px] resize-y rounded-[16px] border-2 border-white bg-white p-3 text-base font-bold outline-none focus:border-[#001eff] disabled:opacity-60"
+                />
+              ))}
+            </div>
+            <p className="mt-3 text-xs font-bold text-[#737783]">Direct edits are local mock state for now; a future backend should write each edit to VersionEvent.</p>
+          </div>
+        ) : (
+          <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_280px]">
+            <div className="rounded-[22px] border-2 border-[#e8e0d9] p-4">
+              <p className="mb-3 font-black text-[#001eff]">Candidate contribution board</p>
+              <div className="grid gap-3">
+                {candidateLines.map((candidate) => {
+                  const status = candidateStatus[candidate.id] ?? "proposed";
+                  return (
+                    <article key={candidate.id} className="rounded-[18px] bg-[#fafafa] p-4">
+                      <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                        <span className="rounded-full bg-[#eef0ff] px-3 py-1 text-xs font-black text-[#001eff]">{candidate.author.handle}</span>
+                        <span className={`rounded-full px-3 py-1 text-xs font-black ${status === "accepted" ? "bg-[#001eff] text-white" : status === "declined" ? "bg-[#ded7cd] text-[#737783]" : "bg-[#fff3f6] text-[#ff4b4f]"}`}>{status}</span>
+                      </div>
+                      <p className="text-base font-black leading-snug">{candidate.text}</p>
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        <button type="button" disabled={locked} onClick={() => setCandidateStatus((current) => ({ ...current, [candidate.id]: "accepted" }))} className="rounded-full bg-[#001eff] px-3 py-1 text-xs font-black text-white disabled:opacity-35">Accept</button>
+                        <button type="button" disabled={locked} onClick={() => setCandidateStatus((current) => ({ ...current, [candidate.id]: "editing" }))} className="rounded-full border-2 border-[#001eff] px-3 py-1 text-xs font-black text-[#001eff] disabled:opacity-35">Edit</button>
+                        <button type="button" disabled={locked} onClick={() => setCandidateStatus((current) => ({ ...current, [candidate.id]: "declined" }))} className="rounded-full border-2 border-[#ded7cd] px-3 py-1 text-xs font-black text-[#737783] disabled:opacity-35">Decline</button>
+                      </div>
+                    </article>
+                  );
+                })}
+              </div>
+            </div>
+            <aside className="rounded-[22px] bg-[#fff3f6] p-4">
+              <p className="font-black text-[#ff4b4f]">Pinned ideas</p>
+              <div className="mt-3 grid gap-2">
+                {post.tags.slice(0, 4).map((tag) => <span key={tag} className="rounded-full bg-white px-3 py-2 text-xs font-black text-[#ff4b4f]">{tag}</span>)}
+                <span className="rounded-[14px] bg-white p-3 text-xs font-bold text-[#737783]">Host can pin images, turns, constraints, or favorite candidate lines here.</span>
+              </div>
+            </aside>
+          </div>
+        )}
+
+        <form onSubmit={submitTurnLine} className="mt-6 rounded-[22px] bg-[#eef0ff] p-4">
+          <label className="mb-3 block font-black text-[#001eff]">{pattern === "shared_editing" ? "Propose a version note" : "Submit candidate text"}</label>
+          <textarea value={turnDraft} onChange={(event) => setTurnDraft(event.target.value)} disabled={locked} className="min-h-[100px] w-full resize-y rounded-[18px] border-2 border-white p-4 text-lg font-bold outline-none focus:border-[#001eff] disabled:opacity-60" placeholder="Offer a line, title, image, or structural move..." />
+          <button disabled={locked || !turnDraft.trim()} className="mt-3 rounded-full bg-[#001eff] px-6 py-3 font-black text-white disabled:bg-[#aeb2d3]">Submit to shared work</button>
+        </form>
+
+        <form onSubmit={addComment} className="mt-6 flex flex-col gap-3 sm:flex-row sm:items-center">
+          <Avatar author={currentUser} />
+          <input value={commentDraft} onChange={(event) => setCommentDraft(event.target.value)} className="h-[46px] min-w-0 flex-1 rounded-full bg-[#efefef] px-8 text-sm outline-none" placeholder="coordinate without changing the shared text" />
+          <button className="h-[46px] rounded-full bg-[#001eff] px-6 font-black text-white">comment</button>
+        </form>
+      </div>
+
+      <aside className="rounded-[26px] border-2 border-[#001eff] p-5">
+        <p className="font-mono text-2xl font-black text-[#001eff]">Contribution board</p>
+        <div className="mt-4 grid gap-3">
+          {participants.map((author, index) => (
+            <div key={author.id} className="flex items-center gap-3 rounded-[18px] bg-[#eef0ff] p-3">
+              <Avatar author={author} muted={index !== 0} />
+              <div>
+                <p className="font-black">{index === 0 ? "Host / editor" : "Contributor"}</p>
+                <p className="text-sm font-bold text-[#737783]">{author.name}</p>
+              </div>
+            </div>
+          ))}
+        </div>
+        <div className="mt-5 rounded-[20px] bg-[#fff3f6] p-4">
+          <p className="font-black text-[#ff4b4f]">Lock rule</p>
+          <p className="mt-2 text-sm font-bold leading-relaxed">Host-curated by default. A future implementation can switch this to vote, rotating editor, or all-authors consent.</p>
+        </div>
+      </aside>
     </section>
   );
 }
@@ -3563,7 +3867,7 @@ function TurnTakingWorkbench(props: {
       <div className="rounded-[26px] border-2 border-[#ff4b4f] bg-white p-5">
         <div className="mb-5 flex flex-wrap items-start justify-between gap-4">
           <div>
-            <h1 className="text-[26px] font-black text-[#ff4b4f]">Co-creative Turn-taking</h1>
+            <h1 className="text-[26px] font-black text-[#ff4b4f]">Co-writing · Relay</h1>
             <p className="mt-1 text-sm font-bold text-[#737783]">Each line keeps attribution. Locked lines become shared record.</p>
           </div>
           <span className="rounded-full bg-[#ff4b4f] px-4 py-2 text-sm font-black text-white">{locked ? "version locked" : `${activeTurn.name}'s turn`}</span>
@@ -3944,10 +4248,11 @@ function PoemCard({
   forcePoem?: boolean;
 }) {
   const showPoem = forcePoem || post.stage !== "Started from" || post.lines.length > 1;
-  const panelLabel = post.stage === "Final Version" ? "Final Version" : post.mode === "turn_taking" ? "Relay so far" : "Poem so far";
-  const topLabel = post.mode === "turn_taking" ? "Turn-taking" : post.source ? "Started from" : post.stage === "Final Version" ? "Final Version" : "Poem Starter";
-  const borderColor = post.mode === "turn_taking" || post.color === "red" ? "border-[#ff4b4f]" : "border-[#001eff]";
-  const accentText = post.mode === "turn_taking" || post.color === "red" ? "text-[#ff4b4f]" : "text-[#001eff]";
+  const pattern = getCoCreativePattern(post);
+  const panelLabel = post.stage === "Final Version" ? "Final Version" : isRelayPost(post) ? "Relay so far" : isCoCreativePost(post) ? "Co-writing so far" : "Poem so far";
+  const topLabel = isCoCreativePost(post) ? `Co-writing${pattern ? ` · ${patternLabel(pattern)}` : ""}` : post.source ? "Started from" : post.stage === "Final Version" ? "Final Version" : "Author-led";
+  const borderColor = isCoCreativePost(post) || post.color === "red" ? "border-[#ff4b4f]" : "border-[#001eff]";
+  const accentText = isCoCreativePost(post) || post.color === "red" ? "text-[#ff4b4f]" : "text-[#001eff]";
   const imageStyle = cardImageStyle(post);
   return (
     <article className={`mb-5 overflow-hidden rounded-[30px] border-2 ${borderColor} bg-white`}>
@@ -3975,7 +4280,7 @@ function PoemCard({
       {showPoem && (
         <div className={`relative -mt-3 rounded-t-[34px] border-2 ${borderColor} border-x-0 border-b-0 bg-white p-5 pt-8`}>
           <div className="flex justify-between gap-3">
-            <span className={`whitespace-nowrap rounded-full border-2 px-3 py-1.5 text-[15px] font-black leading-none ${post.stage === "Final Version" || post.mode === "turn_taking" ? "border-[#ff4b4f] text-[#ff4b4f]" : "border-[#001eff] text-[#001eff]"}`}>{panelLabel}</span>
+            <span className={`whitespace-nowrap rounded-full border-2 px-3 py-1.5 text-[15px] font-black leading-none ${post.stage === "Final Version" || isCoCreativePost(post) ? "border-[#ff4b4f] text-[#ff4b4f]" : "border-[#001eff] text-[#001eff]"}`}>{panelLabel}</span>
             <span className="pt-2 text-[10px] font-black leading-tight text-[#aaa]">From {post.contributors} contributors</span>
           </div>
           <div className="mt-6 grid gap-2">
@@ -4287,7 +4592,8 @@ function FeedbackContractPills({ contract }: { contract: FeedbackContract }) {
 function StatusPills({ post }: { post: Post }) {
   return (
     <div className="flex flex-wrap gap-2">
-      <BlueChip>{post.mode === "turn_taking" ? "Turn-taking" : "Facilitated"}</BlueChip>
+      <BlueChip>{collaborationLabel(post)}</BlueChip>
+      {isCoCreativePost(post) && <BlueChip>{patternLabel(getCoCreativePattern(post))}</BlueChip>}
       <BlueChip>{visibilityLabel(post.visibility)}</BlueChip>
       <BlueChip>{post.lockState.status}</BlueChip>
       <BlueChip>{post.anonymous ? "anonymous" : post.attributionName ? `by ${post.attributionName}` : post.attributionPolicy.defaultStyle.split("_").join(" ")}</BlueChip>
