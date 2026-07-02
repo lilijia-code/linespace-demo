@@ -1,6 +1,6 @@
 import type { FormEvent, ReactNode } from "react";
 
-export type View = "home" | "spaces" | "groupChat" | "create" | "activity" | "profile" | "detail" | "quote" | "history";
+export type View = "home" | "spaces" | "groupChat" | "create" | "activity" | "profile" | "detail" | "quote" | "history" | "versionDetail";
 export type Stage = "Started from" | "Poem so far" | "Final Version";
 export type SuggestionGroup = "Possible lines" | "Reader themes" | "Tone feedback" | "Revision hints";
 export type CollaborationMode = "facilitated" | "co_creative";
@@ -93,6 +93,35 @@ export type LockState = {
   lockedBy?: string;
   lockedAt?: string;
   canBranch: boolean;
+};
+
+export type VersionSnapshot = {
+  id: string;
+  workId: string;
+  parentVersionId?: string;
+  label: string;
+  stage: Stage;
+  createdBy: string;
+  createdAt: string;
+  saveReason: string;
+  visibility: "public" | "private" | "invited" | "group" | "challenge";
+  title?: string;
+  lines: string[];
+  changeSummary: string;
+  sourceEventIds: string[];
+  sourceContributionIds: string[];
+  lockState: LockState;
+};
+
+export type WorkMemory = {
+  id: string;
+  userId: string;
+  workId: string;
+  role: "owner" | "co_author" | "helper" | "reader" | "saver";
+  memoryType: "owned" | "coauthored" | "helped" | "saved_fragment" | "published" | "private_draft";
+  lastTouchedAt: string;
+  pinned: boolean;
+  privateNote?: string;
 };
 
 export type Post = {
@@ -286,6 +315,8 @@ export type VersionEvent = {
   actorName: string;
   type:
     | "created"
+    | "draft_saved"
+    | "version_named"
     | "commented"
     | "suggestion_generated"
     | "suggestion_accepted"
@@ -294,6 +325,7 @@ export type VersionEvent = {
     | "line_reordered"
     | "version_locked"
     | "published"
+    | "attribution_updated"
     | "design_saved"
     | "design_locked"
     | "jpg_exported"

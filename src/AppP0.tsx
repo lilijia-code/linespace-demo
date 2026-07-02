@@ -38,6 +38,8 @@ import {
   suggestionsSeed,
   turnTakingContract,
   versionEventsSeed,
+  versionSnapshotsSeed,
+  workMemoriesSeed,
 } from "./data/mockData";
 import type {
   ActionButtonProps,
@@ -70,13 +72,16 @@ import type {
   AttributionMode,
   VisibilityMode,
   VersionEvent,
+  VersionSnapshot,
   View,
+  WorkMemory,
 } from "./types";
 
 type SpacesTab = "Groups" | "Challenges" | "Fragments" | "Map";
 type FragmentActionName = "save" | "invite" | "chat" | "thread" | "branch";
 type ChallengeStartMode = "author_led" | "co_writing" | "relay";
 type TopicComposerMode = GroupTopicType;
+type MemoryFilter = "All" | "Owned" | "Co-authored" | "Helped" | "Saved" | "Published" | "Private drafts";
 
 const navItems: { label: string; view: View }[] = [
   { label: "Home", view: "home" },
@@ -136,6 +141,8 @@ const topicModes: { value: TopicComposerMode; label: string; hint: string }[] = 
 
 const eventCopy: Record<VersionEvent["type"], string> = {
   created: "Created",
+  draft_saved: "Draft snapshot saved",
+  version_named: "Version named",
   commented: "Commented",
   suggestion_generated: "AI organized suggestion",
   suggestion_accepted: "Suggestion accepted",
@@ -144,6 +151,7 @@ const eventCopy: Record<VersionEvent["type"], string> = {
   line_reordered: "Lines reordered",
   version_locked: "Version locked",
   published: "Published",
+  attribution_updated: "Attribution updated",
   design_saved: "Design draft saved",
   design_locked: "Final design locked",
   jpg_exported: "JPG exported",
@@ -151,6 +159,37 @@ const eventCopy: Record<VersionEvent["type"], string> = {
   fragment_saved: "Fragment saved",
   branch_created: "Branch created",
 };
+
+const evolutionStages = [
+  { id: "private_start", label: "Private start", short: "PR", description: "Drafts and fragments before the work becomes social." },
+  { id: "feedback_opened", label: "Feedback opened", short: "FB", description: "Comments, suggestions, and author decisions around the work." },
+  { id: "co_writing", label: "Co-writing", short: "CO", description: "Turns, line locks, host decisions, and shared authorship." },
+  { id: "lock_in", label: "Lock-in", short: "LK", description: "Versions, lines, and attribution become stable records." },
+  { id: "publication", label: "Publication", short: "PB", description: "Final design, export, and public release." },
+] as const;
+
+type EvolutionStageId = typeof evolutionStages[number]["id"];
+
+function eventStage(event: VersionEvent, post: Post): EvolutionStageId {
+  if (event.type === "draft_saved" || event.type === "fragment_saved" || event.type === "branch_created" || event.type === "created") return "private_start";
+  if (event.type === "line_added" || (event.type === "line_locked" && isCoCreativePost(post))) return "co_writing";
+  if (event.type === "version_locked" || event.type === "line_locked" || event.type === "version_named" || event.type === "attribution_updated") return "lock_in";
+  if (event.type === "published" || event.type === "design_saved" || event.type === "design_locked" || event.type === "jpg_exported" || event.type === "pdf_exported") return "publication";
+  return "feedback_opened";
+}
+
+function eventIcon(type: VersionEvent["type"]) {
+  if (type === "draft_saved") return "DR";
+  if (type === "line_added") return "LN";
+  if (type === "line_locked" || type === "version_locked") return "LK";
+  if (type === "published") return "PB";
+  if (type === "branch_created") return "BR";
+  if (type === "design_locked" || type === "design_saved") return "DS";
+  if (type === "jpg_exported" || type === "pdf_exported") return "EX";
+  if (type === "suggestion_accepted") return "AC";
+  if (type === "commented") return "CM";
+  return "EV";
+}
 
 function classifyReaderResponse(text: string): { kind: string; group?: SuggestionGroup; suggestion?: string } {
   const normalized = text.toLowerCase();
@@ -600,12 +639,15 @@ export default function App() {
   const [fragments, setFragments] = useState<Fragment[]>(fragmentsSeed);
   const [contributions, setContributions] = useState<Contribution[]>(contributionsSeed);
   const [versionEvents, setVersionEvents] = useState<VersionEvent[]>(versionEventsSeed);
+  const [versionSnapshots, setVersionSnapshots] = useState<VersionSnapshot[]>(versionSnapshotsSeed);
+  const [workMemories, setWorkMemories] = useState<WorkMemory[]>(workMemoriesSeed);
   const [publicationDesigns, setPublicationDesigns] = useState<PublicationDesign[]>(initialPublicationDesigns);
   const [exportRecords, setExportRecords] = useState<ExportRecord[]>([]);
   const [groupTopics, setGroupTopics] = useState<GroupTopic[]>(groupTopicsSeed);
   const [groupMessages, setGroupMessages] = useState<GroupChatMessage[]>(groupChatMessagesSeed);
   const [poemLinesByPost, setPoemLinesByPost] = useState<Record<string, PoemLine[]>>(poemLinesByPostSeed);
   const [activePostId, setActivePostId] = useState(postsSeed[0].id);
+  const [activeSnapshotId, setActiveSnapshotId] = useState(versionSnapshotsSeed[0]?.id ?? "");
   const [spacesTab, setSpacesTab] = useState<SpacesTab>("Groups");
   const [activeSpaceId, setActiveSpaceId] = useState(spacesSeed[0].id);
   const [activeGroupChatSpaceId, setActiveGroupChatSpaceId] = useState(spacesSeed[0].id);
@@ -658,6 +700,8 @@ export default function App() {
   }, [activeComments, suggestions]);
   const activeContributions = useMemo(() => contributions.filter((item) => item.workId === activePost.id), [contributions, activePost.id]);
   const activeEvents = useMemo(() => versionEvents.filter((event) => event.workId === activePost.id), [versionEvents, activePost.id]);
+  const activeSnapshots = useMemo(() => versionSnapshots.filter((snapshot) => snapshot.workId === activePost.id), [versionSnapshots, activePost.id]);
+  const activeSnapshot = activeSnapshots.find((snapshot) => snapshot.id === activeSnapshotId) ?? activeSnapshots[0];
   const activePublicationDesign = publicationDesigns.find((design) => design.id === activePost.publicationDesignId || design.workId === activePost.id);
   const activeSpace = activePost.spaceId ? spacesSeed.find((space) => space.id === activePost.spaceId) : undefined;
   const activeChannel = activePost.channelId ? channelsSeed.find((channel) => channel.id === activePost.channelId) : undefined;
@@ -679,7 +723,7 @@ export default function App() {
 
   const filteredPosts = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
-    const visible = posts.filter((post) => post.visibility !== "private" || post.ownerId === currentUser.id);
+    const visible = posts.filter((post) => post.visibility !== "private");
     if (!query) return visible;
     return visible.filter((post) =>
       [post.body, post.stage, getCollaborationMode(post), getCoCreativePattern(post) ?? "", post.kind, post.author.name, post.author.handle, post.lockState.status, ...post.lines, ...post.tags]
@@ -700,6 +744,312 @@ export default function App() {
       createdAt: nowIso(),
     };
     setVersionEvents((current) => [event, ...current]);
+    return event;
+  };
+
+  const upsertWorkMemory = (memory: WorkMemory) => {
+    setWorkMemories((current) => [memory, ...current.filter((item) => item.id !== memory.id)]);
+  };
+
+  const createSnapshotFromPost = (
+    post: Post,
+    options: {
+      id?: string;
+      parentVersionId?: string;
+      label: string;
+      saveReason: string;
+      visibility?: VersionSnapshot["visibility"];
+      sourceEventIds?: string[];
+      sourceContributionIds?: string[];
+      lockState?: VersionSnapshot["lockState"];
+      lines?: string[];
+    },
+  ): VersionSnapshot => ({
+    id: options.id ?? `v-${post.id}-${Date.now()}`,
+    workId: post.id,
+    parentVersionId: options.parentVersionId ?? post.currentVersionId,
+    label: options.label,
+    stage: post.stage,
+    createdBy: currentUser.id,
+    createdAt: nowIso(),
+    saveReason: options.saveReason,
+    visibility: options.visibility ?? post.visibility,
+    title: post.body,
+    lines: options.lines ?? (poemLinesByPost[post.id]?.map((line) => line.text) ?? post.lines),
+    changeSummary: options.saveReason,
+    sourceEventIds: options.sourceEventIds ?? [],
+    sourceContributionIds: options.sourceContributionIds ?? [],
+    lockState: options.lockState ?? post.lockState,
+  });
+
+  const saveDraftSnapshotForPost = (postId: string, reason = "Saved a private draft snapshot from the workbench.") => {
+    const post = posts.find((item) => item.id === postId);
+    if (!post) return;
+    const event = addEvent(post.id, "draft_saved", { text: reason, label: "Private draft snapshot" });
+    const snapshot = createSnapshotFromPost(post, {
+      parentVersionId: post.currentVersionId,
+      label: `Private draft ${versionSnapshots.filter((item) => item.workId === post.id && item.visibility === "private").length + 1}`,
+      saveReason: reason,
+      visibility: "private",
+      sourceEventIds: [event.id],
+      sourceContributionIds: contributions.filter((item) => item.workId === post.id && item.contributorId === currentUser.id).map((item) => item.id),
+      lockState: { status: "unlocked", canBranch: true },
+    });
+    setVersionSnapshots((current) => [snapshot, ...current]);
+    updatePost(post.id, (currentPost) => ({ ...currentPost, currentVersionId: snapshot.id, showHistory: true }));
+    upsertWorkMemory({
+      id: `memory-${currentUser.id}-${post.id}-private`,
+      userId: currentUser.id,
+      workId: post.id,
+      role: post.ownerId === currentUser.id ? "owner" : post.authorIds.includes(currentUser.id) ? "co_author" : "helper",
+      memoryType: "private_draft",
+      lastTouchedAt: snapshot.createdAt,
+      pinned: false,
+      privateNote: reason,
+    });
+    setActiveSnapshotId(snapshot.id);
+  };
+
+  const saveCreateDraftSnapshot = () => {
+    const text = createDraft.trim();
+    if (!text) return;
+    const postId = `p-memory-${Date.now()}`;
+    const snapshotId = `v-${postId}-private`;
+    const createdAt = nowIso();
+    const nextPost: Post = {
+      id: postId,
+      author: currentUser,
+      mode: createMode === "co_creative" && createPattern === "turn_taking_relay" ? "turn_taking" : "facilitated",
+      collaborationMode: createMode,
+      coCreativePattern: createMode === "co_creative" ? createPattern : undefined,
+      kind: "draft",
+      ownerId: currentUser.id,
+      authorIds: [currentUser.id],
+      stage: "Started from",
+      visibility: "private",
+      body: text,
+      lines: [text],
+      tags: createTags.length ? createTags : ["#private_draft"],
+      color: "blue",
+      repliesOpen: false,
+      allowReplies: false,
+      allowBuild: false,
+      quoteAllowed: false,
+      allowLike: false,
+      showHistory: true,
+      invited: [],
+      likes: 0,
+      comments: 0,
+      quotes: 0,
+      saves: 0,
+      liked: false,
+      saved: true,
+      contributors: 1,
+      feedbackContract: defaultFeedbackContract,
+      attributionPolicy: helperAttribution,
+      lockState: { status: "unlocked", canBranch: true },
+      currentVersionId: snapshotId,
+    };
+    const event: VersionEvent = {
+      id: `event-${postId}`,
+      workId: postId,
+      actorId: currentUser.id,
+      actorName: currentUser.name,
+      type: "draft_saved",
+      payload: { versionId: snapshotId, text: "Saved from Create as a private draft snapshot" },
+      createdAt,
+    };
+    const snapshot: VersionSnapshot = {
+      id: snapshotId,
+      workId: postId,
+      label: "Create private draft",
+      stage: "Started from",
+      createdBy: currentUser.id,
+      createdAt,
+      saveReason: "Saved from Create without publishing to the feed.",
+      visibility: "private",
+      title: text,
+      lines: [text],
+      changeSummary: "Private draft captured from the Create flow. It is visible only in your Memoryline.",
+      sourceEventIds: [event.id],
+      sourceContributionIds: [],
+      lockState: { status: "unlocked", canBranch: true },
+    };
+    setPosts((current) => [nextPost, ...current]);
+    setPoemLinesByPost((current) => ({ ...current, [postId]: [{ id: `${postId}-l0`, text, by: "Private draft" }] }));
+    setVersionEvents((current) => [event, ...current]);
+    setVersionSnapshots((current) => [snapshot, ...current]);
+    upsertWorkMemory({
+      id: `memory-${currentUser.id}-${postId}-private`,
+      userId: currentUser.id,
+      workId: postId,
+      role: "owner",
+      memoryType: "private_draft",
+      lastTouchedAt: createdAt,
+      pinned: false,
+      privateNote: "Saved from Create before sharing.",
+    });
+    setActivePostId(postId);
+    setActiveSnapshotId(snapshot.id);
+    setProfileTab("Memory");
+    navigate("profile");
+  };
+
+  const openMemoryline = (workId: string) => {
+    const post = posts.find((item) => item.id === workId);
+    if (!post) {
+      if (fragments.some((fragment) => fragment.id === workId)) {
+        setSpacesTab("Fragments");
+        navigate("spaces");
+      }
+      return;
+    }
+    setActivePostId(workId);
+    const latest = versionSnapshots
+      .filter((snapshot) => snapshot.workId === workId)
+      .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))[0];
+    if (latest) setActiveSnapshotId(latest.id);
+    navigate("history");
+  };
+
+  const openVersionSnapshot = (workId: string, snapshotId: string) => {
+    if (!posts.some((post) => post.id === workId)) return;
+    setActivePostId(workId);
+    setActiveSnapshotId(snapshotId);
+    navigate("versionDetail");
+  };
+
+  const nameVersionSnapshot = (snapshotId: string, label: string) => {
+    const trimmed = label.trim();
+    if (!trimmed) return;
+    const snapshot = versionSnapshots.find((item) => item.id === snapshotId);
+    if (!snapshot) return;
+    setVersionSnapshots((current) => current.map((item) => (item.id === snapshotId ? { ...item, label: trimmed } : item)));
+    addEvent(snapshot.workId, "version_named", { versionId: snapshotId, label: trimmed });
+  };
+
+  const lockVersionSnapshot = (snapshotId: string) => {
+    const snapshot = versionSnapshots.find((item) => item.id === snapshotId);
+    if (!snapshot || snapshot.lockState.status === "locked" || snapshot.lockState.status === "published") return;
+    const lockedAt = nowIso();
+    const nextLock = { status: "locked", lockedBy: currentUser.id, lockedAt, canBranch: true } as const;
+    setVersionSnapshots((current) => current.map((item) => (item.id === snapshotId ? { ...item, lockState: nextLock } : item)));
+    updatePost(snapshot.workId, (post) => ({ ...post, lockState: nextLock, currentVersionId: snapshotId, showHistory: true }));
+    addEvent(snapshot.workId, "version_locked", { versionId: snapshotId, label: snapshot.label });
+  };
+
+  const saveSnapshotCopy = (snapshotId: string) => {
+    const source = versionSnapshots.find((item) => item.id === snapshotId);
+    const post = source ? posts.find((item) => item.id === source.workId) : undefined;
+    if (!source || !post) return;
+    const event = addEvent(source.workId, "draft_saved", { versionId: source.id, text: "Saved a private copy from snapshot detail" });
+    const copy: VersionSnapshot = {
+      ...source,
+      id: `v-${source.workId}-copy-${Date.now()}`,
+      parentVersionId: source.id,
+      label: `${source.label} copy`,
+      createdBy: currentUser.id,
+      createdAt: event.createdAt,
+      saveReason: "Private copy saved from an earlier snapshot.",
+      visibility: "private",
+      changeSummary: "Saved a private copy so this version can be revisited without changing the public work.",
+      sourceEventIds: [event.id],
+      lockState: { status: "unlocked", canBranch: true },
+    };
+    setVersionSnapshots((current) => [copy, ...current]);
+    upsertWorkMemory({
+      id: `memory-${currentUser.id}-${source.workId}-private`,
+      userId: currentUser.id,
+      workId: source.workId,
+      role: post.ownerId === currentUser.id ? "owner" : "helper",
+      memoryType: "private_draft",
+      lastTouchedAt: copy.createdAt,
+      pinned: false,
+      privateNote: copy.saveReason,
+    });
+    setActiveSnapshotId(copy.id);
+  };
+
+  const restoreSnapshotAsBranch = (snapshotId: string) => {
+    const source = versionSnapshots.find((item) => item.id === snapshotId);
+    const original = source ? posts.find((item) => item.id === source.workId) : undefined;
+    if (!source || !original) return;
+    const branchId = `p-branch-${Date.now()}`;
+    const branchVersionId = `v-${branchId}-1`;
+    const createdAt = nowIso();
+    const branchPost: Post = {
+      ...original,
+      id: branchId,
+      author: currentUser,
+      ownerId: currentUser.id,
+      authorIds: [currentUser.id],
+      sourceWorkId: original.id,
+      stage: "Started from",
+      visibility: "private",
+      body: source.lines[0] ?? original.body,
+      lines: source.lines,
+      tags: Array.from(new Set([...original.tags, "#branch", "#private_draft"])),
+      repliesOpen: false,
+      allowReplies: false,
+      allowBuild: false,
+      quoteAllowed: false,
+      allowLike: false,
+      likes: 0,
+      comments: 0,
+      quotes: 0,
+      saves: 0,
+      liked: false,
+      saved: true,
+      contributors: 1,
+      lockState: { status: "unlocked", canBranch: true },
+      currentVersionId: branchVersionId,
+      publicationDesignId: undefined,
+      exportRecordIds: undefined,
+    };
+    const event: VersionEvent = {
+      id: `event-${branchId}`,
+      workId: original.id,
+      actorId: currentUser.id,
+      actorName: currentUser.name,
+      type: "branch_created",
+      payload: { versionId: source.id, branchWorkId: branchId, text: "Restored snapshot as a new private branch" },
+      createdAt,
+    };
+    const branchSnapshot: VersionSnapshot = {
+      ...source,
+      id: branchVersionId,
+      workId: branchId,
+      parentVersionId: source.id,
+      label: `Branch from ${source.label}`,
+      createdBy: currentUser.id,
+      createdAt,
+      saveReason: "Restored as a new private branch. The locked/public source remains unchanged.",
+      visibility: "private",
+      changeSummary: "New branch created from an earlier snapshot; no locked version was overwritten.",
+      sourceEventIds: [event.id],
+      sourceContributionIds: source.sourceContributionIds,
+      lockState: { status: "unlocked", canBranch: true },
+    };
+    setPosts((current) => [branchPost, ...current]);
+    setPoemLinesByPost((current) => ({
+      ...current,
+      [branchId]: source.lines.map((text, index) => ({ id: `${branchId}-l${index}`, text, by: index === 0 ? "Restored branch" : "From source snapshot" })),
+    }));
+    setVersionEvents((current) => [event, ...current]);
+    setVersionSnapshots((current) => [branchSnapshot, ...current]);
+    upsertWorkMemory({
+      id: `memory-${currentUser.id}-${branchId}-private`,
+      userId: currentUser.id,
+      workId: branchId,
+      role: "owner",
+      memoryType: "private_draft",
+      lastTouchedAt: createdAt,
+      pinned: false,
+      privateNote: branchSnapshot.saveReason,
+    });
+    setActivePostId(branchId);
+    setActiveSnapshotId(branchVersionId);
+    navigate("versionDetail");
   };
 
   const navigate = (next: View) => {
@@ -1018,17 +1368,31 @@ export default function App() {
   };
 
   const lockVersion = (postId: string) => {
+    const target = posts.find((post) => post.id === postId);
+    if (!target) return;
+    const lockedAt = nowIso();
+    const lockState = { status: "locked", lockedBy: currentUser.id, lockedAt, canBranch: true } as const;
     updatePost(postId, (post) => ({
       ...post,
       stage: post.stage === "Started from" ? "Poem so far" : post.stage,
       showHistory: true,
-      lockState: { status: "locked", lockedBy: currentUser.id, lockedAt: nowIso(), canBranch: true },
+      lockState,
     }));
     setPoemLinesByPost((current) => ({
       ...current,
       [postId]: (current[postId] ?? []).map((line) => ({ ...line, locked: true })),
     }));
-    addEvent(postId, "version_locked", { versionId: posts.find((post) => post.id === postId)?.currentVersionId ?? postId, label: "Locked from workbench" });
+    const event = addEvent(postId, "version_locked", { versionId: target.currentVersionId, label: "Locked from workbench" });
+    const snapshot = createSnapshotFromPost(target, {
+      id: target.currentVersionId,
+      label: "Locked from workbench",
+      saveReason: "The author locked this version from the workbench.",
+      sourceEventIds: [event.id],
+      sourceContributionIds: contributions.filter((item) => item.workId === postId).map((item) => item.id),
+      lockState,
+    });
+    setVersionSnapshots((current) => [snapshot, ...current.filter((item) => item.id !== snapshot.id)]);
+    setActiveSnapshotId(snapshot.id);
   };
 
   const lockLine = (postId: string, lineId: string) => {
@@ -1229,13 +1593,40 @@ export default function App() {
       upsertPublicationDesign(attachedDesign);
       addEvent(next.id, attachedDesign.locked ? "design_locked" : "design_saved", { designId: attachedDesign.id, templateId: attachedDesign.templateId, title: attachedDesign.title });
     }
-    addEvent(next.id, "created", { text, collaborationMode: next.collaborationMode ?? getCollaborationMode(next), coCreativePattern: next.coCreativePattern, kind: next.kind });
+    const createdEvent = addEvent(next.id, visibility === "private" ? "draft_saved" : "created", { versionId: next.currentVersionId, text, collaborationMode: next.collaborationMode ?? getCollaborationMode(next), coCreativePattern: next.coCreativePattern, kind: next.kind });
+    if (visibility === "private" || isFinal) {
+      const snapshot = createSnapshotFromPost(next, {
+        id: next.currentVersionId,
+        label: visibility === "private" ? "Create private draft" : "Created final version",
+        saveReason: visibility === "private" ? "Saved from Create without publishing to the feed." : "Created and locked as a final version.",
+        visibility,
+        sourceEventIds: [createdEvent.id],
+        lockState: next.lockState,
+      });
+      setVersionSnapshots((current) => [snapshot, ...current]);
+      upsertWorkMemory({
+        id: `memory-${currentUser.id}-${next.id}-${visibility === "private" ? "private" : "published"}`,
+        userId: currentUser.id,
+        workId: next.id,
+        role: "owner",
+        memoryType: visibility === "private" ? "private_draft" : "published",
+        lastTouchedAt: snapshot.createdAt,
+        pinned: isFinal,
+        privateNote: snapshot.saveReason,
+      });
+      setActiveSnapshotId(snapshot.id);
+    }
     if (isFinal) addEvent(next.id, "version_locked", { versionId: next.currentVersionId, label: "Created as locked final" });
     setActivePostId(next.id);
     setBackgroundImage("");
     setCreateTags(["#AI_memory", "#micro_poetry"]);
     setTagDraft("");
-    navigate("detail");
+    if (visibility === "private") {
+      setProfileTab("Memory");
+      navigate("profile");
+    } else {
+      navigate("detail");
+    }
   };
 
   const publishQuote = (event: FormEvent) => {
@@ -1612,6 +2003,7 @@ export default function App() {
               onSaveDesign={savePublicationDesign}
               onLockDesign={lockPublicationDesign}
               onExportDesign={recordPublicationExport}
+              onSaveDraftSnapshot={saveCreateDraftSnapshot}
             />
           )}
           {view === "groupChat" && (
@@ -1662,6 +2054,9 @@ export default function App() {
               posts={posts}
               fragments={fragments}
               contributions={contributions}
+              workMemories={workMemories}
+              versionSnapshots={versionSnapshots}
+              versionEvents={versionEvents}
               publicationDesigns={publicationDesigns}
               exportRecords={exportRecords}
               tab={profileTab}
@@ -1670,6 +2065,7 @@ export default function App() {
               openQuote={openQuote}
               toggleLike={toggleLike}
               toggleSave={toggleSave}
+              openMemoryline={openMemoryline}
               navigate={navigate}
               searchInput={searchInput}
               setSearchInput={setSearchInput}
@@ -1709,6 +2105,8 @@ export default function App() {
               onSaveDesign={savePublicationDesign}
               onLockDesign={lockPublicationDesign}
               onExportDesign={recordPublicationExport}
+              onSaveDraftSnapshot={() => saveDraftSnapshotForPost(activePost.id)}
+              openMemoryline={openMemoryline}
               openHistory={openHistory}
               navigate={navigate}
               searchInput={searchInput}
@@ -1733,8 +2131,29 @@ export default function App() {
             <HistoryPage
               post={activePost}
               events={activeEvents}
+              snapshots={activeSnapshots}
               contributions={activeContributions}
               sourceFragment={fragments.find((fragment) => fragment.id === activePost.sourceFragmentId)}
+              openVersionSnapshot={openVersionSnapshot}
+              navigate={navigate}
+              searchInput={searchInput}
+              setSearchInput={setSearchInput}
+              runSearch={runSearch}
+            />
+          )}
+          {view === "versionDetail" && activeSnapshot && (
+            <VersionSnapshotDetailPage
+              post={activePost}
+              snapshot={activeSnapshot}
+              events={activeEvents}
+              contributions={activeContributions}
+              comments={activeComments}
+              suggestions={activeSuggestions}
+              sourceFragment={activeSourceFragment}
+              nameVersionSnapshot={nameVersionSnapshot}
+              saveSnapshotCopy={saveSnapshotCopy}
+              restoreSnapshotAsBranch={restoreSnapshotAsBranch}
+              lockVersionSnapshot={lockVersionSnapshot}
               navigate={navigate}
               searchInput={searchInput}
               setSearchInput={setSearchInput}
@@ -1752,7 +2171,7 @@ function SideTabs({ view, navigate }: { view: View; navigate: (view: View) => vo
     <aside className="sticky top-0 z-40 border-b border-[#e8e0d9] bg-white/95 px-4 py-4 backdrop-blur lg:h-screen lg:border-b-0 lg:px-7 lg:py-16">
       <nav className="flex gap-6 overflow-x-auto lg:grid lg:gap-[64px] lg:overflow-visible">
         {navItems.map((item) => {
-          const active = item.view === view || (view === "detail" && item.view === "home") || (view === "history" && item.view === "home");
+          const active = item.view === view || ((view === "detail" || view === "history" || view === "versionDetail") && item.view === "home");
           return (
             <button
               key={item.view}
@@ -2771,8 +3190,9 @@ function CreatePage(props: {
   onSaveDesign: (design: PublicationDesign) => void;
   onLockDesign: (design: PublicationDesign) => void;
   onExportDesign: (design: PublicationDesign, type: ExportRecord["type"], filename: string) => void;
+  onSaveDraftSnapshot: () => void;
 }) {
-  const { draft, setDraft, createTags, setCreateTags, tagDraft, setTagDraft, backgroundImage, setBackgroundImage, settings, setSettings, spaces, publishPost, creationKind, setCreationKind, createMode, setCreateMode, createPattern, setCreatePattern, publicationTemplates, onSaveDesign, onLockDesign, onExportDesign } = props;
+  const { draft, setDraft, createTags, setCreateTags, tagDraft, setTagDraft, backgroundImage, setBackgroundImage, settings, setSettings, spaces, publishPost, creationKind, setCreationKind, createMode, setCreateMode, createPattern, setCreatePattern, publicationTemplates, onSaveDesign, onLockDesign, onExportDesign, onSaveDraftSnapshot } = props;
   const ownGroups = spaces.filter((space) => space.members.some((member) => member.userId === currentUser.id));
   const allUsers = Object.values(authors).filter((author) => author.id !== currentUser.id);
   const visibilityOptions: { value: VisibilityMode; label: string; description: string }[] = [
@@ -2967,6 +3387,12 @@ function CreatePage(props: {
       </section>
 
       <textarea value={draft} onChange={(event) => setDraft(event.target.value)} className="mt-6 h-[210px] w-full resize-none rounded-2xl border border-[#b7c4d5] p-6 text-[24px] outline-none lg:p-7 lg:text-[28px]" />
+      <div className="mt-4 flex flex-wrap items-center gap-3 rounded-[18px] bg-[#eef0ff] p-4">
+        <p className="min-w-0 flex-1 text-sm font-bold leading-relaxed text-[#3b3d45]">Save the current text as a private Memoryline draft. It will not appear in the public feed.</p>
+        <button type="button" onClick={onSaveDraftSnapshot} disabled={!draft.trim()} className="rounded-full border-2 border-[#001eff] bg-white px-5 py-2 text-sm font-black text-[#001eff] disabled:opacity-40">
+          Save draft snapshot
+        </button>
+      </div>
       <div className="mt-7 rounded-2xl border border-[#d7d7d7] px-5 py-4">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
           <input
@@ -3417,6 +3843,8 @@ function DetailPage(props: {
   onSaveDesign: (design: PublicationDesign) => void;
   onLockDesign: (design: PublicationDesign) => void;
   onExportDesign: (design: PublicationDesign, type: ExportRecord["type"], filename: string) => void;
+  onSaveDraftSnapshot: () => void;
+  openMemoryline: (workId: string) => void;
   openHistory: (id: string) => void;
   navigate: (view: View) => void;
 } & SearchProps) {
@@ -3452,6 +3880,8 @@ function DetailPage(props: {
     onSaveDesign,
     onLockDesign,
     onExportDesign,
+    onSaveDraftSnapshot,
+    openMemoryline,
     openHistory,
     navigate,
     searchInput,
@@ -3497,7 +3927,8 @@ function DetailPage(props: {
           <div className="mt-5 grid gap-3 rounded-[22px] border-2 border-[#001eff] p-4">
             <p className="text-[22px] font-black text-[#001eff]">Workbench</p>
             <StatusPills post={post} />
-            <button type="button" onClick={() => openHistory(post.id)} className="rounded-full border-2 border-[#001eff] px-5 py-2 text-left font-black text-[#001eff]">View history</button>
+            <button type="button" onClick={() => openMemoryline(post.id)} className="rounded-full border-2 border-[#001eff] px-5 py-2 text-left font-black text-[#001eff]">Open Memoryline</button>
+            <button type="button" onClick={onSaveDraftSnapshot} disabled={locked} className="rounded-full border-2 border-[#ff4b4f] px-5 py-2 text-left font-black text-[#ff4b4f] disabled:opacity-40">Save draft snapshot</button>
             <button type="button" onClick={() => lockVersion(post.id)} disabled={locked} className="rounded-full bg-[#001eff] px-5 py-2 text-left font-black text-white disabled:bg-[#aeb2d3]">
               {locked ? "Version locked" : "Lock version"}
             </button>
@@ -3558,9 +3989,10 @@ function DetailPage(props: {
           badge="Author control"
           lines={poemLines.map((line) => ({ id: line.id, text: line.text, by: line.by }))}
           primaryAction="Save version"
-          secondaryAction="View history"
+          secondaryAction="Open Memoryline"
           onPrimary={(nextLines) => saveAuthorVersion(post.id, nextLines)}
-          onSecondary={() => openHistory(post.id)}
+          onSecondary={() => openMemoryline(post.id)}
+          onSaveDraftSnapshot={onSaveDraftSnapshot}
         />
       )}
       {showPublicationStudio && (
@@ -3927,8 +4359,10 @@ function TurnTakingWorkbench(props: {
 function HistoryPage({
   post,
   events,
+  snapshots,
   contributions,
   sourceFragment,
+  openVersionSnapshot,
   navigate,
   searchInput,
   setSearchInput,
@@ -3936,17 +4370,33 @@ function HistoryPage({
 }: {
   post: Post;
   events: VersionEvent[];
+  snapshots: VersionSnapshot[];
   contributions: Contribution[];
   sourceFragment?: Fragment;
+  openVersionSnapshot: (workId: string, snapshotId: string) => void;
   navigate: (view: View) => void;
 } & SearchProps) {
-  const sorted = [...events].sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
+  const sorted = [...events].sort((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt));
+  const grouped = evolutionStages.map((stage) => ({
+    ...stage,
+    events: sorted.filter((event) => eventStage(event, post) === stage.id),
+  })).filter((stage) => stage.events.length > 0);
+  const snapshotByEvent = (event: VersionEvent) => {
+    const versionId = typeof event.payload.versionId === "string" ? event.payload.versionId : undefined;
+    return snapshots.find((snapshot) => snapshot.id === versionId || snapshot.sourceEventIds.includes(event.id));
+  };
   return (
     <div className="max-w-[980px]">
       <BrandBar navigate={navigate} searchInput={searchInput} setSearchInput={setSearchInput} runSearch={runSearch} />
       <button type="button" onClick={() => navigate("detail")} className="mb-5 font-mono text-[26px] font-black lg:text-[29px]">{"<"} back</button>
-      <h1 className="mb-2 font-mono text-[40px] font-black text-[#001eff] lg:text-[42px]">Version & Contribution Log</h1>
-      <p className="mb-6 text-lg font-bold text-[#737783]">{post.body}</p>
+      <h1 className="mb-2 font-mono text-[40px] font-black text-[#001eff] lg:text-[42px]">Work Evolution</h1>
+      <p className="mb-3 text-lg font-bold text-[#737783]">{post.body}</p>
+      <div className="mb-6 flex flex-wrap gap-2">
+        <BlueChip>{collaborationLabel(post)}</BlueChip>
+        {isCoCreativePost(post) && <BlueChip>{patternLabel(getCoCreativePattern(post))}</BlueChip>}
+        <BlueChip>{snapshots.length} snapshots</BlueChip>
+        <BlueChip>{contributions.length} contributions</BlueChip>
+      </div>
       {sourceFragment && (
         <div className="mb-5 rounded-[22px] border-2 border-[#001eff] p-5">
           <p className="font-black text-[#001eff]">Source fragment</p>
@@ -3954,7 +4404,61 @@ function HistoryPage({
           <p className="mt-2 text-sm font-bold text-[#737783]">{sourceFragment.anonymous ? "Anonymous source" : `From ${sourceFragment.creator?.name}`}</p>
         </div>
       )}
-      <div className="grid gap-4">
+      <section className="mb-7 grid gap-3">
+        <h2 className="font-mono text-[26px] font-black text-[#001eff]">Version snapshots</h2>
+        {snapshots.length === 0 ? (
+          <p className="rounded-[20px] bg-[#eef0ff] p-4 text-sm font-black text-[#001eff]">No saved snapshots yet. Use Save draft snapshot from the workbench.</p>
+        ) : (
+          <div className="grid gap-3 sm:grid-cols-2">
+            {[...snapshots].sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt)).map((snapshot) => (
+              <button key={snapshot.id} type="button" onClick={() => openVersionSnapshot(snapshot.workId, snapshot.id)} className="rounded-[20px] border-2 border-[#e8e0d9] p-4 text-left hover:border-[#001eff]">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="rounded-full bg-[#001eff] px-3 py-1 text-xs font-black text-white">{snapshot.stage}</span>
+                  <BlueChip>{snapshot.visibility}</BlueChip>
+                  <BlueChip>{snapshot.lockState.status}</BlueChip>
+                </div>
+                <p className="mt-3 text-lg font-black">{snapshot.label}</p>
+                <p className="mt-2 text-xs font-bold leading-relaxed text-[#737783]">{snapshot.changeSummary}</p>
+              </button>
+            ))}
+          </div>
+        )}
+      </section>
+      <div className="grid gap-7">
+        {grouped.map((group) => (
+          <section key={group.id}>
+            <div className="mb-3 flex items-center gap-3">
+              <span className={`grid h-10 w-10 place-items-center rounded-full text-sm font-black text-white ${group.id === "co_writing" ? "bg-[#ff4b4f]" : "bg-[#001eff]"}`}>{group.short}</span>
+              <div>
+                <h2 className="font-mono text-[24px] font-black text-[#001eff]">{group.label}</h2>
+                <p className="text-xs font-bold text-[#737783]">{group.description}</p>
+              </div>
+            </div>
+            <div className="grid gap-3 border-l-4 border-[#eef0ff] pl-4">
+              {group.events.map((event) => {
+                const snapshot = snapshotByEvent(event);
+                return (
+                  <article key={event.id} className="rounded-[22px] border-2 border-[#e8e0d9] bg-white p-5">
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div className="flex min-w-0 items-center gap-3">
+                        <span className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-[#eef0ff] text-xs font-black text-[#001eff]">{eventIcon(event.type)}</span>
+                        <div className="min-w-0">
+                          <p className="text-lg font-black"><span className="text-[#001eff]">{eventCopy[event.type]}</span> by {event.actorName}</p>
+                          <p className="mt-1 text-xs font-bold text-[#737783]">{formatDate(event.createdAt)}</p>
+                        </div>
+                      </div>
+                      {snapshot && <button type="button" onClick={() => openVersionSnapshot(snapshot.workId, snapshot.id)} className="rounded-full border-2 border-[#001eff] px-4 py-2 text-xs font-black text-[#001eff]">Open snapshot</button>}
+                    </div>
+                    <p className="mt-3 text-sm font-bold leading-relaxed text-[#737783]">{snapshot?.changeSummary ?? payloadSummary(event.payload)}</p>
+                    {snapshot && <p className="mt-3 w-max rounded-full bg-[#fff3f6] px-3 py-1 text-xs font-black text-[#ff4b4f]">{snapshot.stage} / {snapshot.lockState.status}</p>}
+                  </article>
+                );
+              })}
+            </div>
+          </section>
+        ))}
+      </div>
+      <div className="hidden">
         {sorted.map((event) => (
           <article key={event.id} className="rounded-[22px] border-2 border-[#001eff] p-5">
             <div className="flex flex-wrap items-center justify-between gap-3">
@@ -3965,8 +4469,8 @@ function HistoryPage({
           </article>
         ))}
       </div>
-      <h2 className="mb-4 mt-8 font-mono text-[28px] font-black text-[#001eff]">Contribution records</h2>
-      <div className="grid gap-3 sm:grid-cols-2">
+      <h2 className="hidden">Contribution records</h2>
+      <div className="hidden">
         {contributions.map((item) => (
           <div key={item.id} className="rounded-[18px] border-2 border-[#e8e0d9] p-4">
             <p className="font-black">{item.anonymous ? "Anonymous contributor" : item.contributorName}</p>
@@ -3975,6 +4479,152 @@ function HistoryPage({
         ))}
       </div>
     </div>
+  );
+}
+
+function VersionSnapshotDetailPage({
+  post,
+  snapshot,
+  events,
+  contributions,
+  comments,
+  suggestions,
+  sourceFragment,
+  nameVersionSnapshot,
+  saveSnapshotCopy,
+  restoreSnapshotAsBranch,
+  lockVersionSnapshot,
+  navigate,
+  searchInput,
+  setSearchInput,
+  runSearch,
+}: {
+  post: Post;
+  snapshot: VersionSnapshot;
+  events: VersionEvent[];
+  contributions: Contribution[];
+  comments: Comment[];
+  suggestions: Suggestion[];
+  sourceFragment?: Fragment;
+  nameVersionSnapshot: (snapshotId: string, label: string) => void;
+  saveSnapshotCopy: (snapshotId: string) => void;
+  restoreSnapshotAsBranch: (snapshotId: string) => void;
+  lockVersionSnapshot: (snapshotId: string) => void;
+  navigate: (view: View) => void;
+} & SearchProps) {
+  const [tab, setTab] = useState<"Read version" | "Changes" | "Sources" | "Actions">("Read version");
+  const [nameDraft, setNameDraft] = useState(snapshot.label);
+  const linkedEvents = events.filter((event) => snapshot.sourceEventIds.includes(event.id));
+  const linkedContributions = contributions.filter((item) => snapshot.sourceContributionIds.includes(item.id));
+  const addedLines = snapshot.lines.filter((line) => !post.lines.includes(line));
+  const removedLines = post.lines.filter((line) => !snapshot.lines.includes(line));
+  const reordered = snapshot.lines.length === post.lines.length && snapshot.lines.some((line, index) => post.lines[index] !== line);
+  return (
+    <div className="max-w-[980px]">
+      <BrandBar navigate={navigate} searchInput={searchInput} setSearchInput={setSearchInput} runSearch={runSearch} />
+      <button type="button" onClick={() => navigate("history")} className="mb-5 font-mono text-[26px] font-black lg:text-[29px]">{"<"} back to evolution</button>
+      <header className="rounded-[28px] border-2 border-[#001eff] bg-white p-5 lg:p-6">
+        <div className="flex flex-col justify-between gap-4 lg:flex-row lg:items-start">
+          <div>
+            <p className="font-mono text-sm font-black uppercase text-[#001eff]">Version Snapshot Detail</p>
+            <h1 className="mt-2 text-[34px] font-black leading-none text-[#001eff] lg:text-[44px]">{snapshot.label}</h1>
+            <p className="mt-3 max-w-[760px] text-sm font-bold leading-relaxed text-[#737783]">{snapshot.saveReason}</p>
+          </div>
+          <div className="flex flex-wrap gap-2 lg:max-w-[360px] lg:justify-end">
+            <BlueChip>{snapshot.stage}</BlueChip>
+            <BlueChip>{snapshot.visibility}</BlueChip>
+            <BlueChip>{snapshot.lockState.status}</BlueChip>
+            <BlueChip>{formatDate(snapshot.createdAt)}</BlueChip>
+          </div>
+        </div>
+      </header>
+      <div className="mt-5 flex gap-2 overflow-x-auto pb-1">
+        {(["Read version", "Changes", "Sources", "Actions"] as const).map((item) => (
+          <button key={item} type="button" onClick={() => setTab(item)} className={`min-h-10 whitespace-nowrap rounded-full px-4 text-sm font-black ${tab === item ? "bg-[#001eff] text-white" : "bg-[#eef0ff] text-[#001eff]"}`}>
+            {item}
+          </button>
+        ))}
+      </div>
+      {tab === "Read version" && (
+        <section className="mt-5 rounded-[28px] bg-[#001eff] p-5 text-white lg:p-7">
+          <p className="mb-5 font-mono text-sm font-black uppercase text-white/70">{snapshot.title ?? post.body}</p>
+          <div className="grid gap-4 text-[22px] font-black leading-snug lg:text-[28px]">
+            {snapshot.lines.map((line, index) => <p key={`${snapshot.id}-line-${index}`}>{line}</p>)}
+          </div>
+        </section>
+      )}
+      {tab === "Changes" && (
+        <section className="mt-5 grid gap-4">
+          <div className="rounded-[24px] border-2 border-[#001eff] p-5">
+            <p className="font-mono text-xl font-black text-[#001eff]">Change summary</p>
+            <p className="mt-3 text-sm font-bold leading-relaxed text-[#737783]">{snapshot.changeSummary}</p>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-3">
+            <ChangeBucket title="Added" items={addedLines.length ? addedLines : ["No added lines in this mock diff."]} />
+            <ChangeBucket title="Removed" items={removedLines.length ? removedLines : ["No removed lines in this mock diff."]} />
+            <ChangeBucket title="Reordered" items={[reordered ? "Line order differs from the current work." : "No reorder detected."]} />
+          </div>
+        </section>
+      )}
+      {tab === "Sources" && (
+        <section className="mt-5 grid gap-4">
+          {sourceFragment && (
+            <SourceCard title="Source fragment" body={sourceFragment.text} meta={sourceFragment.anonymous ? "Anonymous fragment" : sourceFragment.creator?.handle ?? "Fragment source"} />
+          )}
+          {linkedEvents.map((event) => <SourceCard key={event.id} title={eventCopy[event.type]} body={payloadSummary(event.payload)} meta={`${event.actorName} / ${formatDate(event.createdAt)}`} />)}
+          {linkedContributions.map((contribution) => {
+            const sourceComment = comments.find((comment) => comment.id === contribution.sourceId);
+            const sourceSuggestion = suggestions.find((suggestion) => suggestion.commentId === contribution.sourceId || suggestion.id === contribution.sourceId);
+            return (
+              <SourceCard
+                key={contribution.id}
+                title={`${contribution.type} / ${contribution.status}`}
+                body={sourceComment?.text ?? sourceSuggestion?.text ?? contribution.sourceId}
+                meta={`${contribution.contributorName} / ${contribution.attributionPreference.replace("_", " ")}`}
+              />
+            );
+          })}
+          {!sourceFragment && linkedEvents.length === 0 && linkedContributions.length === 0 && <p className="rounded-[20px] bg-[#eef0ff] p-4 text-sm font-black text-[#001eff]">No source details are linked to this snapshot yet.</p>}
+        </section>
+      )}
+      {tab === "Actions" && (
+        <section className="mt-5 grid gap-4 rounded-[28px] border-2 border-[#e8e0d9] p-5">
+          <div>
+            <p className="font-mono text-xl font-black text-[#001eff]">Name version</p>
+            <div className="mt-3 flex flex-col gap-3 sm:flex-row">
+              <input value={nameDraft} onChange={(event) => setNameDraft(event.target.value)} className="h-12 min-w-0 flex-1 rounded-full bg-[#efefef] px-5 font-bold outline-none focus:ring-2 focus:ring-[#001eff]" />
+              <button type="button" onClick={() => nameVersionSnapshot(snapshot.id, nameDraft)} className="rounded-full bg-[#001eff] px-6 py-3 font-black text-white">Save name</button>
+            </div>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-3">
+            <button type="button" onClick={() => saveSnapshotCopy(snapshot.id)} className="rounded-[18px] border-2 border-[#001eff] p-4 text-left font-black text-[#001eff]">Save draft snapshot<span className="mt-2 block text-xs font-bold text-[#737783]">Create a private copy in Memory.</span></button>
+            <button type="button" onClick={() => restoreSnapshotAsBranch(snapshot.id)} className="rounded-[18px] border-2 border-[#ff4b4f] p-4 text-left font-black text-[#ff4b4f]">Restore as new branch<span className="mt-2 block text-xs font-bold text-[#737783]">Never overwrites the locked/public source.</span></button>
+            <button type="button" onClick={() => lockVersionSnapshot(snapshot.id)} disabled={snapshot.lockState.status === "locked" || snapshot.lockState.status === "published"} className="rounded-[18px] bg-[#001eff] p-4 text-left font-black text-white disabled:bg-[#aeb2d3]">Lock version<span className="mt-2 block text-xs font-bold text-white/75">Freeze this snapshot as a stable record.</span></button>
+          </div>
+        </section>
+      )}
+    </div>
+  );
+}
+
+function ChangeBucket({ title, items }: { title: string; items: string[] }) {
+  return (
+    <article className="rounded-[22px] border-2 border-[#e8e0d9] p-4">
+      <p className="font-mono text-lg font-black text-[#001eff]">{title}</p>
+      <div className="mt-3 grid gap-2">
+        {items.map((item, index) => <p key={`${title}-${index}`} className="rounded-[14px] bg-[#eef0ff] p-3 text-xs font-bold leading-relaxed text-[#3b3d45]">{item}</p>)}
+      </div>
+    </article>
+  );
+}
+
+function SourceCard({ title, body, meta }: { title: string; body: string; meta?: string }) {
+  return (
+    <article className="rounded-[22px] border-2 border-[#e8e0d9] bg-white p-5">
+      <p className="font-black text-[#001eff]">{title}</p>
+      <p className="mt-2 text-base font-bold leading-relaxed">{body}</p>
+      {meta && <p className="mt-2 text-xs font-black text-[#737783]">{meta}</p>}
+    </article>
   );
 }
 
@@ -4074,6 +4724,9 @@ function ProfilePage({
   posts,
   fragments,
   contributions,
+  workMemories,
+  versionSnapshots,
+  versionEvents,
   publicationDesigns,
   exportRecords,
   tab,
@@ -4082,6 +4735,7 @@ function ProfilePage({
   openQuote,
   toggleLike,
   toggleSave,
+  openMemoryline,
   navigate,
   searchInput,
   setSearchInput,
@@ -4090,6 +4744,9 @@ function ProfilePage({
   posts: Post[];
   fragments: Fragment[];
   contributions: Contribution[];
+  workMemories: WorkMemory[];
+  versionSnapshots: VersionSnapshot[];
+  versionEvents: VersionEvent[];
   publicationDesigns: PublicationDesign[];
   exportRecords: ExportRecord[];
   tab: string;
@@ -4098,9 +4755,11 @@ function ProfilePage({
   openQuote: (id: string) => void;
   toggleLike: (id: string) => void;
   toggleSave: (id: string) => void;
+  openMemoryline: (workId: string) => void;
   navigate: (view: View) => void;
 } & SearchProps) {
-  const tabs = ["Posts", "Quotes", "Final Versions", "Saved", "Fragments", "Contributions"];
+  const tabs = ["Posts", "Memory", "Quotes", "Final Versions", "Saved", "Fragments", "Contributions"];
+  const [memoryFilter, setMemoryFilter] = useState<MemoryFilter>("All");
   const filtered =
     tab === "Saved"
       ? posts.filter((post) => post.saved)
@@ -4118,7 +4777,19 @@ function ProfilePage({
           <button key={item} type="button" onClick={() => setTab(item)} className={`h-[44px] whitespace-nowrap rounded-full px-6 text-[18px] font-black text-white ${tab === item ? "bg-[#001eff]" : "bg-[#aeb2d3]"}`}>{item}</button>
         ))}
       </div>
-      {tab === "Fragments" ? (
+      {tab === "Memory" ? (
+        <MemoryTab
+          posts={posts}
+          fragments={fragments}
+          contributions={contributions}
+          workMemories={workMemories}
+          versionSnapshots={versionSnapshots}
+          versionEvents={versionEvents}
+          filter={memoryFilter}
+          setFilter={setMemoryFilter}
+          openMemoryline={openMemoryline}
+        />
+      ) : tab === "Fragments" ? (
         <div className="grid gap-5 lg:grid-cols-2">
           {fragments.filter((fragment) => fragment.savedBy.includes(currentUser.id) || fragment.creatorId === currentUser.id).map((fragment) => (
             <div key={fragment.id} className="rounded-[22px] border-2 border-[#001eff] p-5">
@@ -4152,6 +4823,93 @@ function ProfilePage({
         <MasonryGrid posts={filtered.slice(0, 8)} openPost={openPost} openQuote={openQuote} toggleLike={toggleLike} toggleSave={toggleSave} compact />
       )}
     </div>
+  );
+}
+
+function MemoryTab({
+  posts,
+  fragments,
+  contributions,
+  workMemories,
+  versionSnapshots,
+  versionEvents,
+  filter,
+  setFilter,
+  openMemoryline,
+}: {
+  posts: Post[];
+  fragments: Fragment[];
+  contributions: Contribution[];
+  workMemories: WorkMemory[];
+  versionSnapshots: VersionSnapshot[];
+  versionEvents: VersionEvent[];
+  filter: MemoryFilter;
+  setFilter: (filter: MemoryFilter) => void;
+  openMemoryline: (workId: string) => void;
+}) {
+  const filters: MemoryFilter[] = ["All", "Owned", "Co-authored", "Helped", "Saved", "Published", "Private drafts"];
+  const visible = workMemories
+    .filter((memory) => memory.userId === currentUser.id)
+    .filter((memory) => {
+      if (filter === "All") return true;
+      if (filter === "Owned") return memory.memoryType === "owned";
+      if (filter === "Co-authored") return memory.memoryType === "coauthored";
+      if (filter === "Helped") return memory.memoryType === "helped";
+      if (filter === "Saved") return memory.memoryType === "saved_fragment";
+      if (filter === "Published") return memory.memoryType === "published";
+      return memory.memoryType === "private_draft";
+    })
+    .sort((a, b) => Number(b.pinned) - Number(a.pinned) || Date.parse(b.lastTouchedAt) - Date.parse(a.lastTouchedAt));
+  return (
+    <section>
+      <div className="mb-5 rounded-[26px] border-2 border-[#001eff] bg-white p-5">
+        <p className="font-mono text-[30px] font-black text-[#001eff]">Memoryline</p>
+        <p className="mt-2 max-w-[780px] text-sm font-bold leading-relaxed text-[#737783]">Your private drafts, locked versions, co-authored works, saved fragments, and contribution trails. Open a work only when you want to inspect its evolution.</p>
+        <div className="mt-4 flex gap-2 overflow-x-auto pb-1">
+          {filters.map((item) => (
+            <button key={item} type="button" onClick={() => setFilter(item)} className={`h-10 whitespace-nowrap rounded-full px-4 text-sm font-black ${filter === item ? "bg-[#001eff] text-white" : "bg-[#eef0ff] text-[#001eff]"}`}>
+              {item}
+            </button>
+          ))}
+        </div>
+      </div>
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+        {visible.map((memory) => {
+          const post = posts.find((item) => item.id === memory.workId);
+          const fragment = fragments.find((item) => item.id === memory.workId);
+          const snapshots = versionSnapshots.filter((snapshot) => snapshot.workId === memory.workId);
+          const latestSnapshot = [...snapshots].sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))[0];
+          const recentEvent = [...versionEvents.filter((event) => event.workId === memory.workId)].sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))[0];
+          const contributionCount = contributions.filter((item) => item.workId === memory.workId).length;
+          const hasPrivateDraft = snapshots.some((snapshot) => snapshot.visibility === "private");
+          const title = latestSnapshot?.title || post?.body || fragment?.text || "Saved memory";
+          const stage = latestSnapshot?.stage ?? post?.stage ?? "Started from";
+          const lockState = latestSnapshot?.lockState.status ?? post?.lockState.status ?? "unlocked";
+          return (
+            <article key={memory.id} className={`rounded-[24px] border-2 bg-white p-5 ${memory.pinned ? "border-[#001eff]" : "border-[#e8e0d9]"}`}>
+              <div className="mb-3 flex flex-wrap items-center gap-2">
+                <span className={`rounded-full px-3 py-1 text-xs font-black text-white ${memory.memoryType === "private_draft" ? "bg-[#ff4b4f]" : "bg-[#001eff]"}`}>{memoryLabel(memory)}</span>
+                <BlueChip>{roleLabel(memory.role)}</BlueChip>
+                {hasPrivateDraft && <span className="rounded-full bg-[#fff3f6] px-3 py-1 text-xs font-black text-[#ff4b4f]">private draft</span>}
+              </div>
+              <p className="text-xl font-black leading-snug">{shorten(title, 92)}</p>
+              <div className="mt-4 grid grid-cols-2 gap-2">
+                <MetricBlock value={stage} label="current stage" />
+                <MetricBlock value={lockState} label="lock state" />
+              </div>
+              <p className="mt-4 text-sm font-bold leading-relaxed text-[#737783]">{recentEvent ? `${eventCopy[recentEvent.type]} by ${recentEvent.actorName}` : fragment ? "Saved fragment memory" : "No events yet"}</p>
+              <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+                <span className="text-xs font-black text-[#737783]">{contributionCount} contributions / {snapshots.length} snapshots</span>
+                <button type="button" onClick={() => openMemoryline(memory.workId)} className="rounded-full bg-[#001eff] px-4 py-2 text-sm font-black text-white">
+                  {post ? "Open evolution" : "Open fragment"}
+                </button>
+              </div>
+              {memory.privateNote && <p className="mt-3 rounded-[16px] bg-[#eef0ff] p-3 text-xs font-bold leading-relaxed text-[#001eff]">{memory.privateNote}</p>}
+            </article>
+          );
+        })}
+      </div>
+    </section>
   );
 }
 
@@ -4495,6 +5253,7 @@ function EditPoemPanel({
   secondaryAction,
   onPrimary,
   onSecondary,
+  onSaveDraftSnapshot,
 }: {
   title: string;
   subtitle: string;
@@ -4504,6 +5263,7 @@ function EditPoemPanel({
   secondaryAction?: string;
   onPrimary: (lines: EditablePoemLine[]) => void;
   onSecondary?: () => void;
+  onSaveDraftSnapshot?: () => void;
 }) {
   const [localLines, setLocalLines] = useState(lines);
   const [publishedLines, setPublishedLines] = useState(lines.map((line) => line.text));
@@ -4566,6 +5326,7 @@ function EditPoemPanel({
           <button type="button" onClick={saveCurrentPreview} className="rounded-full bg-[#001eff] px-7 py-3 text-lg font-black text-white">{primaryAction}</button>
           <button type="button" onClick={aiDraftFinal} className="rounded-full bg-black px-7 py-3 text-lg font-black text-white">AI draft final</button>
           {secondaryAction && <button type="button" onClick={onSecondary} className="rounded-full border-2 border-[#001eff] px-7 py-3 text-lg font-black text-[#001eff]">{secondaryAction}</button>}
+          {onSaveDraftSnapshot && <button type="button" onClick={onSaveDraftSnapshot} className="rounded-full border-2 border-[#ff4b4f] px-7 py-3 text-lg font-black text-[#ff4b4f]">Save draft snapshot</button>}
         </div>
       </div>
       <aside className="rounded-[28px] border-2 border-[#e8e0d9] bg-white p-5">
@@ -4679,6 +5440,23 @@ function visibilityLabel(visibility: Post["visibility"]) {
   if (visibility === "invited") return "Invited";
   if (visibility === "group") return "Group Only";
   return "Challenge";
+}
+
+function memoryLabel(memory: WorkMemory) {
+  if (memory.memoryType === "owned") return "Owned work";
+  if (memory.memoryType === "coauthored") return "Co-authored";
+  if (memory.memoryType === "helped") return "Helped";
+  if (memory.memoryType === "saved_fragment") return "Saved fragment";
+  if (memory.memoryType === "published") return "Published";
+  return "Private draft";
+}
+
+function roleLabel(role: WorkMemory["role"]) {
+  if (role === "co_author") return "co-author";
+  if (role === "owner") return "owner";
+  if (role === "helper") return "helper";
+  if (role === "saver") return "saver";
+  return "reader";
 }
 
 function shorten(text: string, max: number) {
